@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<head>
+<style>
+canvas {
+    border: 1px solid black;
+}
+video {
+    display: none;
+}
+.err {
+    color: red;
+}
+</style>
+</head>
+<body>
+  
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<body>
+<div id="container">
+    <canvas class="center-block" id="canvasOutput" width=640 height=360></canvas>
+    <canvas class="center-block" id="canvasRoi" width=640 height=100></canvas>
+    <video id="video">Your browser does not support the video tag.</video>
+</div>
+</body>
+
+<script src="index.js"></script>
+<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.6.5/dat.gui.min.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js" onload="opencvIsReady()"></script>
+<!--<script async src="tesseract/tesseract.min.js"></script>-->
+<script src='https://cdn.jsdelivr.net/gh/naptha/tesseract.js@v1.0.14/dist/tesseract.min.js'></script>
+
+
+</head>
