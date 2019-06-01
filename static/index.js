@@ -99,19 +99,35 @@ function stopCamera() {
 }
 
 
-function hughLines(src) {
+// Finds the intersection of two lines
+// The lines are defined by (o1, p1) and (o2, p2).
+function intersection(o1, p1, o2, p2) {
+  let x = new cv.Point(o2.x - o1.x, o2.y - o1.y);
+  let d1 = new cv.Point(p1.x - o1.x, p1.y - o1.y);
+  let d2 = new cv.Point(p2.x - o2.x, p2.y - o2.y);
+
+  let cross = d1.x*d2.y - d1.y*d2.x;
+  if (Math.abs(cross) < /*EPS*/1e-8) {
+    return null;
+  }
+
+  let t1 = (x.x * d2.y - x.y * d2.x) / cross;
+  let ret = new cv.Point(o1.x + d1.x * t1, o1.y + d1.y * t1);
+  //x.delete();
+  //d1.delete();
+  //d2.delete();
+  return ret;
+}
+
+function hughLines(orig) {
   let lines = new cv.Mat();
   let color = colorRed;
-  let left = -1;
-  let leftVal = width;
-  let right = -1;
-  let rightVal = 0;
-  let lower = -1;
-  let lowerVal = height;
-  let upper = -1;
-  let upperVal = 0;
-  cv.Canny(src, src, 50, 200, 3);
-  cv.HoughLinesP(src, lines, 1, Math.PI / 180, 2, 70, 8);
+  let left = [];
+  let right = [];
+  let lower = [];
+  let upper = [];
+  cv.Canny(orig, orig, 50, 200, 3);
+  cv.HoughLinesP(orig, lines, 1, Math.PI / 180, 2, 70, 8);
   for (let i = 0; i < lines.rows; ++i) {
     let a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
     let b = new cv.Point(lines.data32S[i * 4 + 2], lines.data32S[i * 4 + 3]);
@@ -124,69 +140,209 @@ function hughLines(src) {
       continue;
     }
     // vertical line
-    if (diffX < 20) {
+    if (diffX < 30) {
       if (a.x < width * 0.3) {
-        if (a.x < leftVal) {
-          left = i;
-          leftVal = a.x;
-        }
-        cv.line(dstC1, a, b, colorRed, 1);          
+        left.push(i);
+        cv.line(dstC1, a, b, colorRed, 1);
       }
       if (a.x > width * 0.7) {
-        if (a.x > rightVal) {
-          right = i;
-          rightVal = a.x;
-        }
+        right.push(i)
         cv.line(dstC1, a, b, colorRed, 1);          
       }
     }
     // horizontal line
-    if (diffY < 10) {
+    if (diffY < 30) {
       if (a.y < height * 0.3) {
-        if (a.y < lowerVal) {
-          lower = i;
-          lowerVal = a.y;
-        }
+        lower.push(i)
         cv.line(dstC1, a, b, colorRed, 1);          
       }
       if (a.y > height * 0.7) {
-        if (a.y > upperVal) {
-          upper = i;
-          upperVal = a.y;
-        }
+        upper.push(i)
         cv.line(dstC1, a, b, colorRed, 1);          
       }
     }
     //a.delete();
     //b.delete();
   }
-  if (left >= 0 && right >= 0 && lower >= 0 && upper >= 0) {
-    let i = left;
-    let left_a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
-    let left_b = new cv.Point(lines.data32S[i * 4 + 2], lines.data32S[i * 4 + 3]);
-    i = right;
-    right_a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
-    right_b = new cv.Point(lines.data32S[i * 4 + 2], lines.data32S[i * 4 + 3]);
-    i = lower;
-    lower_a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
-    lower_b = new cv.Point(lines.data32S[i * 4 + 2], lines.data32S[i * 4 + 3]);
-    i = upper;
-    upper_a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
-    upper_b = new cv.Point(lines.data32S[i * 4 + 2], lines.data32S[i * 4 + 3]);
-
-    // check 2/3 ration
-    let length = right_a.x - left_a.x
-    let height = upper_a.y - lower_a.y
-    let ratio = length / height
-    if (ratio > 1.3 && ratio < 1.7) {
-      color = colorGreen;
+  if (1) {
+    // sort lower
+    for (let i = 1; i < lower.length; i++) {
+      let a = lower[i-1];
+      let b = lower[i];
+      let y_a = (lines.data32S[a * 4 + 1] + lines.data32S[a * 4 + 3]) / 2;
+      let y_b = (lines.data32S[b * 4 + 1] + lines.data32S[b * 4 + 3]) / 2;
+      if (y_b < y_a) {
+        lower[i-1] = b;
+        lower[i] = a;
+      }
     }
-    cv.line(dstC1, left_a, left_b, color, 3);
-    cv.line(dstC1, right_a, right_b, color, 3);
-    cv.line(dstC1, lower_a, lower_b, color, 3);
-    cv.line(dstC1, upper_a, upper_b, color, 3);
+    // sort upper
+    for (let i = 1; i < upper.length; i++) {
+      let a = upper[i-1];
+      let b = upper[i];
+      let y_a = (lines.data32S[a * 4 + 1] + lines.data32S[a * 4 + 3]) / 2;
+      let y_b = (lines.data32S[b * 4 + 1] + lines.data32S[b * 4 + 3]) / 2;
+      if (y_b > y_a) {
+        upper[i-1] = b;
+        upper[i] = a;
+      }
+    }
+    // sort left
+    for (let i = 1; i < left.length; i++) {
+      let a = left[i-1];
+      let b = left[i];
+      let x_a = (lines.data32S[a * 4] + lines.data32S[a * 4 + 2]) / 2;
+      let x_b = (lines.data32S[b * 4] + lines.data32S[b * 4 + 2]) / 2;
+      if (x_b < x_a) {
+        left[i-1] = b;
+        left[i] = a;
+      }
+    }
+    // sort right
+    for (let i = 1; i < right.length; i++) {
+      let a = right[i-1];
+      let b = right[i];
+      let x_a = (lines.data32S[a * 4] + lines.data32S[a * 4 + 2]) / 2;
+      let x_b = (lines.data32S[b * 4] + lines.data32S[b * 4 + 2]) / 2;
+      if (x_b > x_a) {
+        right[i-1] = b;
+        right[i] = a;
+      }
+    }
   }
 
+  console.log("***********************************************");
+  for (let i_ = 0; i_ < lower.length; ++i_) {
+    let i = lower[i_];
+    let lower_diff_x = lines.data32S[i * 4] - lines.data32S[i * 4 + 2];
+    let lower_diff_y = lines.data32S[i * 4 + 1] - lines.data32S[i * 4 + 3];
+    let lower_y = Math.min(lines.data32S[i * 4 + 1], lines.data32S[i * 4 + 3])
+    let lower_rad = (Math.atan2(lower_diff_y, lower_diff_x) + 2 * Math.PI)  % Math.PI;
+    if(lower_rad > (Math.PI / 2)) {
+      lower_rad = lower_rad - Math.PI;
+    }
+    for (let j_ = 0; j_ < upper.length; ++j_) {
+      let j = upper[j_];
+      let upper_diff_x = lines.data32S[j * 4] - lines.data32S[j * 4 + 2];
+      let upper_diff_y = lines.data32S[j * 4 + 1] - lines.data32S[j * 4 + 3];
+      let upper_y = Math.max(lines.data32S[j * 4 + 1], lines.data32S[j * 4 + 3])
+      let upper_rad = (Math.atan2(upper_diff_y, upper_diff_x) + 2 * Math.PI) % Math.PI;
+      if(upper_rad > (Math.PI / 2)) {
+        upper_rad = upper_rad - Math.PI;
+      }
+      for (let k_ = 0; k_ < left.length; ++k_) {
+        let k = left[k_];
+        let left_diff_x = lines.data32S[k * 4] - lines.data32S[k * 4 + 2];
+        let left_diff_y = lines.data32S[k * 4 + 1] - lines.data32S[k * 4 + 3];
+        let left_x = Math.min(lines.data32S[k * 4], lines.data32S[k * 4 + 2])
+        let left_rad = (Math.atan2(left_diff_y, left_diff_x) + 2 * Math.PI) % Math.PI;
+        if(left_rad > Math.PI) {
+          left_rad = left_rad - Math.PI;
+        }
+        // left line not between lower and upper
+        if(lines.data32S[k * 4 + 1] < lower_y || lines.data32S[k * 4 + 1] > upper_y ||
+           lines.data32S[k * 4 + 3] < lower_y || lines.data32S[k * 4 + 3] > upper_y) {
+             continue;
+        }
+        for (let l_ = 0; l_ < right.length; ++l_) {
+          let l = right[l_];
+          let right_diff_x = lines.data32S[l * 4] - lines.data32S[l * 4 + 2];
+          let right_diff_y = lines.data32S[l * 4 + 1] - lines.data32S[l * 4 + 3];
+          let right_x = Math.max(lines.data32S[l * 4], lines.data32S[l * 4 + 2])
+          let right_rad = (Math.atan2(right_diff_y, right_diff_x) + 2 * Math.PI) % Math.PI;
+          if(right_rad > Math.PI) {
+            right_rad = right_rad - Math.PI;
+          }
+
+          // right line not between lower and upper
+          if(lines.data32S[l * 4 + 1] < lower_y || lines.data32S[l * 4 + 1] > upper_y ||
+            lines.data32S[l * 4 + 3] < lower_y || lines.data32S[l * 4 + 3] > upper_y) {
+              continue;
+          }
+          // upper line not between left and right
+          if(lines.data32S[j * 4] < left_x || lines.data32S[j * 4] > right_x ||
+            lines.data32S[j * 4 + 2] < left_x || lines.data32S[j * 4 + 2] > right_x) {
+              continue;
+          }
+          // lower line not between left and right
+          if(lines.data32S[i * 4] < left_x || lines.data32S[i * 4] > right_x ||
+            lines.data32S[i * 4 + 2] < left_x || lines.data32S[i * 4 + 2] > right_x) {
+              continue;
+          }
+
+          console.log("___" + lower_rad + "_" + upper_rad + "_" + left_rad + "_" + right_rad);
+          
+          let rot1 = ((lower_rad + upper_rad ) % Math.PI) / 2;
+          let rot2 = ((left_rad + right_rad - Math.PI) % Math.PI) / 2;
+          let rot = Math.abs(rot1 - rot2)
+          if (rot > 0.05) {
+            continue;
+          }
+          console.log("rot1:" + (rot1 / Math.PI * 180));
+          console.log("rot2:" + (rot2/ Math.PI * 180));
+          console.log("rot:" + (rot1 - rot2));
+          
+          let alpha1 = ((lower_rad - upper_rad ) % Math.PI) / 2;
+          let alpha2 = ((left_rad - right_rad) % Math.PI) / 2;
+          console.log("alpha1:" + alpha1);
+          console.log("alpha2:" + alpha2);
+          
+          let lower_a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
+          let lower_b = new cv.Point(lines.data32S[i * 4 + 2], lines.data32S[i * 4 + 3]);
+          let upper_a = new cv.Point(lines.data32S[j * 4], lines.data32S[j * 4 + 1]);
+          let upper_b = new cv.Point(lines.data32S[j * 4 + 2], lines.data32S[j * 4 + 3]);
+          let left_a = new cv.Point(lines.data32S[k * 4], lines.data32S[k * 4 + 1]);
+          let left_b = new cv.Point(lines.data32S[k * 4 + 2], lines.data32S[k * 4 + 3]);
+          let right_a = new cv.Point(lines.data32S[l * 4], lines.data32S[l * 4 + 1]);
+          let right_b = new cv.Point(lines.data32S[l * 4 + 2], lines.data32S[l * 4 + 3]);                
+          let lower_left = intersection(lower_a, lower_b, left_a, left_b);
+          let lower_right = intersection(lower_a, lower_b, right_a, right_b);
+          let upper_left = intersection(upper_a, upper_b, left_a, left_b);
+          let upper_right = intersection(upper_a, upper_b, right_a, right_b);
+
+          // check 2/3 ration
+          let len_x = Math.max(lower_right.x - lower_left.x, upper_right.x - upper_left.x) / Math.cos(alpha1);
+          let len_y = Math.max(upper_left.y - lower_left.y, upper_right.y - lower_right.y) / Math.cos(alpha2);
+          let ratio = len_x / len_y;
+          console.log("length:" + length);
+          console.log("height:" + height);
+          console.log("ratio:" + ratio);
+          // angle up to 30° ok
+          if (ratio < 1.2 || ratio > 1.65) {
+            continue;
+          }
+
+          cv.line(dstC1, lower_a, lower_b, colorGreen, 3);
+          cv.line(dstC1, upper_a, upper_b, colorGreen, 3);
+          cv.line(dstC1, left_a, left_b, colorGreen, 3);
+          cv.line(dstC1, right_a, right_b, colorGreen, 3);
+          cv.line(dstC1, lower_left, lower_right, colorGreen, 1);
+          cv.line(dstC1, lower_right, upper_right, colorGreen, 1);
+          cv.line(dstC1, upper_right, upper_left, colorGreen, 1);
+          cv.line(dstC1, upper_left, lower_left, colorGreen, 1);
+
+          let xf = video.videoWidth / width;
+          let yf = video.videoHeight / height;
+          let roi_width = len_x * xf;
+          let roi_height = len_y * yf;
+          let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [lower_left.x * xf, lower_left.y * yf,
+                                                           lower_right.x * xf, lower_right.y * yf,
+                                                           upper_left.x * xf, upper_left.y * yf,
+                                                           upper_right.x * xf, upper_right.y * yf]);
+          let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, roi_width, 0, 0, roi_height, roi_width, roi_height]);
+          let M = cv.getPerspectiveTransform(srcTri, dstTri);
+          // You can try more different parameters
+          let dst = new cv.Mat();
+          let dsize = new cv.Size(roi_width, roi_height);
+          cv.warpPerspective(src, dst, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+          cv.imshow('canvasPass', dst);
+
+          lines.delete();
+          return;
+        }
+      }
+    }
+  }
   lines.delete();
 }
 
