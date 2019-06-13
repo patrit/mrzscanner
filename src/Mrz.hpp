@@ -1,3 +1,4 @@
+#include <Poco/JSON/Object.h>
 #include <map>
 #include <vector>
 
@@ -47,15 +48,20 @@ class Mrz {
 public:
   Mrz(std::string const &lines);
 
-  std::string const &val(Field field) const;
   std::string toJSON() const;
   void toJSON(std::ostream &os) const;
+  bool valid() const { return _valid; }
 
 private:
   std::map<Field, std::string> _values;
+  bool _valid;
 
-  uint8_t validate() const;
+  void set(Poco::JSON::Object &sum, std::string const &key, Field field) const;
+  std::string const &val(Field field) const;
+  bool exists(Field field) const;
+  bool validate() const;
   bool isValid(Field check, std::initializer_list<Field> fields) const;
   void postprocessNames();
   MrzItem const &guessType(std::vector<std::string> const &lines);
+  std::string rawString() const;
 };

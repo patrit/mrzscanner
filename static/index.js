@@ -18,7 +18,8 @@ function startCamera() {
   navigator.mediaDevices.getUserMedia({
     video: {
       width: { min: 1280, ideal: 1920 },
-      height: { min: 720, ideal: 1080 }    
+      height: { min: 720, ideal: 1080 },
+      frameRate: { ideal: 15, max: 30 }
     }, 
     audio: false})
     .then(function(s) {
@@ -126,7 +127,8 @@ function hughLines(orig) {
   let right = [];
   let lower = [];
   let upper = [];
-  cv.Canny(orig, orig, 50, 200, 3);
+  cv.medianBlur(orig, orig, 5);
+  cv.Canny(orig, orig, 50, 150, 3);
   cv.HoughLinesP(orig, lines, 1, Math.PI / 180, 2, 70, 8);
   for (let i = 0; i < lines.rows; ++i) {
     let a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
@@ -143,71 +145,69 @@ function hughLines(orig) {
     if (diffX < 30) {
       if (a.x < width * 0.3) {
         left.push(i);
-        cv.line(dstC1, a, b, colorRed, 1);
+        cv.line(dstC1, a, b, colorRed, 3);
       }
       if (a.x > width * 0.7) {
         right.push(i)
-        cv.line(dstC1, a, b, colorRed, 1);          
+        cv.line(dstC1, a, b, colorRed, 3);          
       }
     }
     // horizontal line
     if (diffY < 30) {
       if (a.y < height * 0.3) {
         lower.push(i)
-        cv.line(dstC1, a, b, colorRed, 1);          
+        cv.line(dstC1, a, b, colorRed, 3);          
       }
       if (a.y > height * 0.7) {
         upper.push(i)
-        cv.line(dstC1, a, b, colorRed, 1);          
+        cv.line(dstC1, a, b, colorRed, 3);          
       }
     }
     //a.delete();
     //b.delete();
   }
-  if (1) {
-    // sort lower
-    for (let i = 1; i < lower.length; i++) {
-      let a = lower[i-1];
-      let b = lower[i];
-      let y_a = (lines.data32S[a * 4 + 1] + lines.data32S[a * 4 + 3]) / 2;
-      let y_b = (lines.data32S[b * 4 + 1] + lines.data32S[b * 4 + 3]) / 2;
-      if (y_b < y_a) {
-        lower[i-1] = b;
-        lower[i] = a;
-      }
+  // sort lower
+  for (let i = 1; i < lower.length; i++) {
+    let a = lower[i-1];
+    let b = lower[i];
+    let y_a = (lines.data32S[a * 4 + 1] + lines.data32S[a * 4 + 3]) / 2;
+    let y_b = (lines.data32S[b * 4 + 1] + lines.data32S[b * 4 + 3]) / 2;
+    if (y_b < y_a) {
+      lower[i-1] = b;
+      lower[i] = a;
     }
-    // sort upper
-    for (let i = 1; i < upper.length; i++) {
-      let a = upper[i-1];
-      let b = upper[i];
-      let y_a = (lines.data32S[a * 4 + 1] + lines.data32S[a * 4 + 3]) / 2;
-      let y_b = (lines.data32S[b * 4 + 1] + lines.data32S[b * 4 + 3]) / 2;
-      if (y_b > y_a) {
-        upper[i-1] = b;
-        upper[i] = a;
-      }
+  }
+  // sort upper
+  for (let i = 1; i < upper.length; i++) {
+    let a = upper[i-1];
+    let b = upper[i];
+    let y_a = (lines.data32S[a * 4 + 1] + lines.data32S[a * 4 + 3]) / 2;
+    let y_b = (lines.data32S[b * 4 + 1] + lines.data32S[b * 4 + 3]) / 2;
+    if (y_b > y_a) {
+      upper[i-1] = b;
+      upper[i] = a;
     }
-    // sort left
-    for (let i = 1; i < left.length; i++) {
-      let a = left[i-1];
-      let b = left[i];
-      let x_a = (lines.data32S[a * 4] + lines.data32S[a * 4 + 2]) / 2;
-      let x_b = (lines.data32S[b * 4] + lines.data32S[b * 4 + 2]) / 2;
-      if (x_b < x_a) {
-        left[i-1] = b;
-        left[i] = a;
-      }
+  }
+  // sort left
+  for (let i = 1; i < left.length; i++) {
+    let a = left[i-1];
+    let b = left[i];
+    let x_a = (lines.data32S[a * 4] + lines.data32S[a * 4 + 2]) / 2;
+    let x_b = (lines.data32S[b * 4] + lines.data32S[b * 4 + 2]) / 2;
+    if (x_b < x_a) {
+      left[i-1] = b;
+      left[i] = a;
     }
-    // sort right
-    for (let i = 1; i < right.length; i++) {
-      let a = right[i-1];
-      let b = right[i];
-      let x_a = (lines.data32S[a * 4] + lines.data32S[a * 4 + 2]) / 2;
-      let x_b = (lines.data32S[b * 4] + lines.data32S[b * 4 + 2]) / 2;
-      if (x_b > x_a) {
-        right[i-1] = b;
-        right[i] = a;
-      }
+  }
+  // sort right
+  for (let i = 1; i < right.length; i++) {
+    let a = right[i-1];
+    let b = right[i];
+    let x_a = (lines.data32S[a * 4] + lines.data32S[a * 4 + 2]) / 2;
+    let x_b = (lines.data32S[b * 4] + lines.data32S[b * 4 + 2]) / 2;
+    if (x_b > x_a) {
+      right[i-1] = b;
+      right[i] = a;
     }
   }
 
@@ -282,8 +282,8 @@ function hughLines(orig) {
           console.log("rot2:" + (rot2/ Math.PI * 180));
           console.log("rot:" + (rot1 - rot2));
           
-          let alpha1 = ((lower_rad - upper_rad ) % Math.PI) / 2;
-          let alpha2 = ((left_rad - right_rad) % Math.PI) / 2;
+          let alpha1 = ((lower_rad - upper_rad ) % Math.PI) ;
+          let alpha2 = ((left_rad - right_rad) % Math.PI) ;
           console.log("alpha1:" + alpha1);
           console.log("alpha2:" + alpha2);
           
@@ -304,11 +304,11 @@ function hughLines(orig) {
           let len_x = Math.max(lower_right.x - lower_left.x, upper_right.x - upper_left.x) / Math.cos(alpha1);
           let len_y = Math.max(upper_left.y - lower_left.y, upper_right.y - lower_right.y) / Math.cos(alpha2);
           let ratio = len_x / len_y;
-          console.log("length:" + length);
-          console.log("height:" + height);
+          console.log("length:" + len_x);
+          console.log("height:" + len_y);
           console.log("ratio:" + ratio);
           // angle up to 30° ok
-          if (ratio < 1.2 || ratio > 1.65) {
+          if (ratio < 1.2 || ratio > 1.8) {
             continue;
           }
 
@@ -357,10 +357,11 @@ function myfilter(orig) {
   //return dstC1;
 
   cv.Canny(dstC3, dstC4, 200, 150);
+  //return dstC3;
   cv.morphologyEx(dstC4, dstC3, cv.MORPH_BLACKHAT, rectKernel);
   cv.morphologyEx(dstC3, dstC3, cv.MORPH_CLOSE, rectKernel);
   cv.threshold(dstC3, dstC3, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
-
+  
   const contoursCard = new cv.MatVector();
   const contoursRoi = new cv.MatVector();
   const hierarchy = new cv.Mat();
@@ -388,8 +389,8 @@ function myfilter(orig) {
       continue;
     }
     foundRoi += 1;
-    minX = Math.min(minX, rect.x);
-    maxX = Math.max(maxX, rect.x + rect.width);
+    minX = Math.min(minX, rect.x - 20);
+    maxX = Math.max(maxX, rect.x + rect.width + 20);
     minY = Math.min(minY, rect.y);
     maxY = Math.max(maxY, rect.y + rect.height);
   }
@@ -402,43 +403,60 @@ function myfilter(orig) {
     let minP = new cv.Point(minX - 10, minY - 10);
     let maxP = new cv.Point(maxX + 20, maxY + 10);
     console.log("******** " + minX + ", " + minY + ", " + maxX + ", " + maxY + ", ");
-    cv.rectangle(dstC1, minP, maxP, (consecutiveRoiFound > 12) ? colorGreen : colorRed, 2);
+    cv.rectangle(dstC1, minP, maxP, (consecutiveRoiFound > 6) ? colorGreen : colorRed, 2);
     
-    if (consecutiveRoiFound > 12) {
+    if (consecutiveRoiFound > 6) {
       if(!ocrRunning){
+        ocrRunning = true;
         let x = (minX - 10) * video.videoWidth / width;
         let w = (maxX - minX  + 30) * video.videoWidth / width;
         let y = (minY - 10) * video.videoHeight / height;
         let h = (maxY - minY  + 20) * video.videoHeight / height;
         let rect = new cv.Rect(x, y, w, h);
-        ocrRunning = true;
         let roi = new cv.Mat();
         roi = src.roi(rect);
+        //let dsize = new cv.Size(w/2, h/2);
+        //let roi2 = new cv.Mat();
+        //cv.resize (roi, roi2, dsize)
         cv.imshow("canvasRoi", roi);
-        let img = document.getElementById("canvasRoi").getContext('2d');
-        //window.Tesseract = Tesseract.create({lang: 'en'});
-        window.Tesseract = Tesseract.create({
-          workerPath: 'http://localhost:8000/tesseract/worker.js',
-          langPath: 'http://localhost:8000/tesseract/lang/',
-          corePath: 'http://localhost:8000/tesseract/tesseract_core.js',
+        let canvasRoi = document.getElementById("canvasRoi");
+        let imgData = canvasRoi.toDataURL("image/jpeg", 0.8);
+        let media = imgData.substr(23); // strip data:image/jpeg;base64,
+
+        axios.post('/mrz', {
+          media: media
+        })
+        .then(function (response) {
+          console.log("###################################");
+          console.log(response.data);
+          console.log("###################################");
+          var pretty = JSON.stringify(response.data, undefined, 4);
+          document.getElementById('mrztext').value = pretty;
+          ocrRunning = false;
+        })
+        .catch(function (error) {
+          ocrRunning = false;
+          console.log("###################################");
+          console.log(error);
+          console.log("###################################");
+          //document.getElementById('mrztext').value = '';
+          //const context = canvasRoi.getContext('2d');
+          //context.clearRect(0, 0, canvasRoi.width, canvasRoi.height);
         });
-  
-        Tesseract.recognize(img, {
-            lang: 'spa'
-          })
-          .progress(message => console.log(message))
-          .catch(err => {console.error(err); ocrRunning = false;})
-          .then(result => {console.log(result); ocrRunning = false;})
-          .finally(resultOrError => {console.log(resultOrError); ocrRunning = false;})
-  
+
         roi.delete();
       }
     }
   } else {
-    consecutiveRoiFound = 0;
+    if(!ocrRunning){
+      consecutiveRoiFound = 0;
+      //const context = canvasRoi.getContext('2d');
+      //context.clearRect(0, 0, canvasRoi.width, canvasRoi.height);
+    }
   }
   //console.log("Time" + (Date.now() - time));
   time = Date.now()
+  //cv.flip(dstC1, dstC1, 1)
   return dstC1;
 }
 

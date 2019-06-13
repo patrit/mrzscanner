@@ -16,8 +16,5 @@ string MrzCleaner::fix(string_view str, size_t len) const {
       ret += c;
     }
   }
-  if (ret.size() < len) {
-    ret.insert(ret.end(), len - ret.size(), '<');
-  }
   return ret;
 };

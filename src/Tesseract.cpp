@@ -14,7 +14,9 @@ Tesseract::Tesseract() {
 
 Tesseract::~Tesseract() {
   // Destroy used object and release memory
-  api->End();
+  if(api != nullptr) {
+    api->End();
+  }
 }
 
 std::string Tesseract::analyze(std::string const &data) {

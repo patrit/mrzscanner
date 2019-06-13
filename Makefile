@@ -1,5 +1,5 @@
-CXXFLAGS := --std=c++17 -g -I.
-LDFLAGS=-g
+CXXFLAGS := --std=c++17 -O3 -flto -I.
+LDFLAGS=-O3 -flto
 LDLIBS=-ltesseract -llept -lPocoNet -lPocoUtil -lPocoFoundation -lPocoJSON
 
 
@@ -16,10 +16,10 @@ server: files.inc $(OBJS)
 
 .PHONY: files.inc
 files.inc:
-	find static -type f -size +1k | xargs gzip -k -f && \
+	find static -type f -size +1k | grep -v ".gz$$" | xargs gzip -k -f && \
 	(for i in $$(find static -type f); \
 	do \
-		echo -n '{"'$$i'", "' && \
+		echo -n '{"'/$$i'", "' && \
 		python3 -c "import mimetypes; print(mimetypes.guess_type('$$i')[0], end='')" && \
 		echo '"},'; \
 	done) > $@
@@ -30,10 +30,10 @@ clean:
 	rm -f src/*.o server files.inc static/*.gz
 
 format:
-	clang-format -i *.hpp *.cpp
+	clang-format -i src/*.hpp src/*.cpp
 
 testab:
-	ab -p download.json -T application/json -c 4 -n 100 http://localhost:9090/mrz
+	ab -p download.json -T application/json -c 4 -n 100 http://localhost:8080/mrz
 
 testsingle:
-	curl -X POST -H "Content-Type: application/json" -H "Accept-Content: application/json" -d @download.json http://localhost:9090/mrz
+	curl -X POST -H "Content-Type: application/json" -H "Accept-Content: application/json" -d @download.json http://localhost:8080/mrz

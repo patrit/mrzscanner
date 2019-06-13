@@ -38,27 +38,33 @@ class MrzRequestHandler : public HTTPRequestHandler {
 public:
   MrzRequestHandler(Tesseract &tess) : _tess(tess){};
   virtual void handleRequest(HTTPServerRequest &req, HTTPServerResponse &resp) {
-    string data;
-    Poco::StreamCopier::copyToString(req.stream(), data);
-    // parse JSON
-    Var result = parser.parse(data);
-    auto object = result.extract<Object::Ptr>();
-    string fileData = object->getValue<string>("fileData");
-    istringstream instream(fileData);
-    Poco::Base64Decoder decoder(instream);
-    string decoded;
-    Poco::StreamCopier::copyToString(decoder, decoded);
-    // OCR
-    string ret = _tess.analyze(decoded);
-    // MRZ
-    Mrz mrz(ret);
-
-    resp.setStatus(HTTPResponse::HTTP_OK);
-    resp.setContentType("application/json");
-
-    ostream &out = resp.send();
-    mrz.toJSON(out);
-    out.flush();
+    try {
+      string data;
+      Poco::StreamCopier::copyToString(req.stream(), data);
+      // parse JSON
+      Var result = parser.parse(data);
+      auto object = result.extract<Object::Ptr>();
+      string fileData = object->getValue<string>("media");
+      istringstream instream(fileData);
+      Poco::Base64Decoder decoder(instream);
+      string decoded;
+      Poco::StreamCopier::copyToString(decoder, decoded);
+      // OCR
+      string ret = _tess.analyze(decoded);
+      // MRZ
+      Mrz mrz(ret);
+      if (mrz.valid()) {
+        resp.setStatus(HTTPResponse::HTTP_OK);
+        resp.setContentType("application/json");
+        ostream &out = resp.send();
+        mrz.toJSON(out);
+        out.flush();
+      } else {
+        resp.setStatus(HTTPResponse::HTTP_BAD_REQUEST);
+      }
+    } catch (...) {
+      resp.setStatus(HTTPResponse::HTTP_BAD_REQUEST);
+    }
   }
 };
 
@@ -66,15 +72,21 @@ class FileRequestHandler : public HTTPRequestHandler {
 public:
   virtual void handleRequest(HTTPServerRequest &req, HTTPServerResponse &resp) {
     string base = ".";
-    resp.setChunkedTransferEncoding(true);
-    auto it = existingfiles.find(req.getURI());
+    string uri = req.getURI();
+    if (uri == "/") {
+      resp.redirect("/static/index.html");
+      return;
+    } else if (uri == "/favicon.ico") {
+      uri = "/static" + uri;
+    }
+    auto it = existingfiles.find(uri);
     if (it == existingfiles.end()) {
       resp.setStatus(HTTPResponse::HTTP_NOT_FOUND);
       return;
     }
     string fn = base + it->first;
     if (req.get("Accept-Encoding", "").find("gzip") != string::npos) {
-      auto itgz = existingfiles.find(req.getURI() + ".gz");
+      auto itgz = existingfiles.find(uri + ".gz");
       if (itgz != existingfiles.end()) {
         resp.set("Content-Encoding", "gzip");
         fn = base + itgz->first;
@@ -103,7 +115,7 @@ public:
 class MrzServerApp : public ServerApplication {
 protected:
   int main(const vector<string> &) {
-    int port = 9090;
+    int port = 8080;
     HTTPServerParams *pParams = new HTTPServerParams;
     pParams->setKeepAlive(false);
     pParams->setMaxThreads(4);

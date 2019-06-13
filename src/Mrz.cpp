@@ -3,6 +3,7 @@
 #include <Poco/Dynamic/Var.h>
 #include <Poco/JSON/JSON.h>
 #include <Poco/JSON/Parser.h>
+#include <Poco/Logger.h>
 #include <algorithm>
 #include <initializer_list>
 #include <map>
@@ -12,8 +13,13 @@
 #include "MrzValid.hpp"
 
 using namespace std;
+using Poco::Logger;
 
 namespace {
+
+Logger &logger = Logger::get("MRZ");
+
+enum Space { Erase, Fill };
 
 MrzCleaner fixNone({});
 MrzCleaner fixAlpha({{'0', 'O'},
@@ -125,70 +131,95 @@ MrzItem vMRVB{"MRVB",
               }};
 MrzItem vEmpty{"empty", {}};
 
-vector<string> split(string const &datastr) {
+vector<string_view> split(string const &datastr) {
   string_view data = datastr;
-  vector<string> tmplines;
-  while (data.size() > 0) {
-    size_t idx = data.find('\n');
-    if (idx > 28) {
-      string_view sv = data.substr(0, idx);
-      string line(sv.data(), sv.size());
-      // guarantee consistent format
-      replace(line.begin(), line.end(), ' ', '<');
-      // guarantee enough characters (exceeding here)
-      line.insert(line.end(), 50 - line.size(), '<');
+  vector<string_view> tmplines;
+  size_t begin = 0;
+  size_t end = 0;
+  while ((end = data.find('\n', begin)) != string_view::npos) {
+    size_t len = end - begin;
+    if (len > 28) {
+      string_view line = data.substr(begin, len);
       tmplines.push_back(line);
-      printf("%s\n", string(data.substr(0, idx)).c_str());
+      cout << line << end;
     }
-    if (idx != string_view::npos) {
-      data.remove_prefix(idx + 1);
-    }
+    begin = end + 1;
   }
   return tmplines;
 }
+
+void fill(vector<string> &lines, Space spaceBhv) {
+  for (string &line : lines) {
+    // guarantee consistent format
+    switch (spaceBhv) {
+    case Space::Fill:
+      replace(line.begin(), line.end(), ' ', '<');
+      break;
+    case Space::Erase:
+      line.erase(remove_if(line.begin(), line.end(), ::isspace), line.end());
+      break;
+    }
+    // guarantee enough characters (exceeding here)
+    line.insert(line.end(), 46 - line.size(), '<');
+  }
+}
 } // namespace
 
-Mrz::Mrz(string const &datastr) : _values() {
-  vector<string> origlines = split(datastr);
-  for (size_t lo = 0; lo <= origlines.size() - 2; lo++) {
-    // printf("loop: %zd/%zd\n", lo, origlines.size() - 2);
-    // sliding window
-    vector<string> lines = origlines;
-    lines.erase(lines.begin(), lines.begin() + lo);
-    // printf("------lines=%zd\n", lines.size());
-    for (size_t offset = 0; offset < 2; offset++) {
-      // printf("------\n");
-      for (string &line : lines) {
-        line = line.substr(offset);
-        // printf("  %s\n", string(line).c_str());
-      }
-      MrzItem const &mrzitem = guessType(lines);
-      if (mrzitem.fields.empty()) {
-        // printf("Not identified\n");
+Mrz::Mrz(string const &datastr) : _values(), _valid(false) {
+  // do some brute force on OCR lines
+  // remove spaces or replace them with a '<'
+  for (Space spaceBhv : {Space::Erase, Space::Fill}) {
+    vector<string_view> origlines = split(datastr);
+    // either 2 or 3 lines
+    for (size_t numlines : {3, 2}) {
+      if (origlines.size() < numlines) {
         continue;
       }
-      _values[MrzType] = mrzitem.name;
-      _values[Raw1] = lines.at(0);
-      _values[Raw2] = lines.at(1);
-      if (lines.size() > 2) {
-        _values[Raw3] = lines.at(2);
+      // sliding window: iterate over all lines
+      for (size_t lo = 0; lo <= origlines.size() - numlines; lo++) {
+        logger.debug("sliding window: 0..[%zd..%zd]..%zd", lo, lo + numlines,
+                     origlines.size());
+        vector<string> lines;
+        std::transform(origlines.begin() + lo,
+                       origlines.begin() + lo + numlines, back_inserter(lines),
+                       [](string_view const &sv) { return string(sv); });
+        // try to skip the first character - helps with spurious character
+        // detection
+        for (size_t offset = 0; offset < round(exp2(numlines)); offset++) {
+          size_t off = offset;
+          for (string &line : lines) {
+            line = line.substr(off % 2);
+            off = off / 2;
+          }
+          MrzItem const &mrzitem = guessType(lines);
+          if (mrzitem.fields.empty()) {
+            logger.debug("Not identified");
+            continue;
+          }
+          // fill empty spaces
+          fill(lines, spaceBhv);
+          // fill fields
+          _values[MrzType] = mrzitem.name;
+          for (size_t idx = 0; idx < numlines; idx++) {
+            Field field = Field(Raw1 + idx);
+            _values[field] = lines.at(idx).substr(0, mrzitem.length);
+          }
+          for (MrzField const &item : mrzitem.fields) {
+            string_view line = lines.at(item.line);
+            line = line.substr(item.start, item.length);
+            _values[item.field] = item.cleaner.fix(line, item.length);
+          }
+          postprocessNames();
+          _valid = validate();
+          if (_valid) {
+            logger.information("Using MRZ:\n%s", rawString());
+            return;
+          } else {
+            logger.debug("Invalid MRZ:\n%s", rawString());
+            _values.clear();
+          }
+        }
       }
-      for (MrzField const &item : mrzitem.fields) {
-        string_view line = lines[item.line];
-        line = line.substr(item.start, item.length);
-        _values[item.field] = item.cleaner.fix(line, item.length);
-        // printf("  __value %d: %s\n", item.field,
-        //       item.cleaner.fix(line, item.length).c_str());
-      }
-      postprocessNames();
-      uint8_t valid = validate();
-      if (valid > 2) {
-        printf("Using:\n%s\n", toJSON().c_str());
-        return;
-      } else {
-        printf("Dropping:\n%s\n", toJSON().c_str());
-      }
-      _values.clear();
     }
   }
 }
@@ -199,28 +230,59 @@ string const &Mrz::val(Field field) const {
   return (it == _values.end()) ? empty : it->second;
 }
 
-std::string Mrz::toJSON() const {
+void Mrz::set(Poco::JSON::Object &sum, string const &key, Field field) const {
+  auto it = _values.find(field);
+  if (it != _values.end()) {
+    string const &val = it->second;
+    if (val.find_first_not_of('<') != string::npos) {
+      sum.set(key, val);
+    }
+  }
+}
+
+bool Mrz::exists(Field field) const {
+  return _values.find(field) != _values.end();
+}
+
+string Mrz::rawString() const {
+  string ret = val(Field::Raw1) + '\n' + val(Field::Raw2);
+  if (exists(Field::Raw3)) {
+    ret += '\n' + val(Field::Raw3);
+  }
+  return ret;
+}
+
+string Mrz::toJSON() const {
   ostringstream ostr;
   toJSON(ostr);
   return ostr.str();
 }
 
 void Mrz::toJSON(ostream &os) const {
-
   Poco::JSON::Object ret;
-  ret.set("mrz_type", val(Field::MrzType));
-  ret.set("type", val(Field::Type));
-  ret.set("country", val(Field::Country));
-  ret.set("surname", val(Field::Surname));
-  ret.set("names", val(Field::Names));
-  ret.set("expiration_date", val(Field::ExpirationDate));
-  ret.set("check_expiration_date", val(Field::CheckExpirationDate));
-  ret.set("number", val(Field::Number));
-  ret.set("check_number", val(Field::CheckNumber));
+  set(ret, "mrz_type", Field::MrzType);
+  set(ret, "type", Field::Type);
+  set(ret, "country", Field::Country);
+  set(ret, "surname", Field::Surname);
+  set(ret, "names", Field::Names);
+  set(ret, "expiration_date", Field::ExpirationDate);
+  set(ret, "check_expiration_date", Field::CheckExpirationDate);
+  set(ret, "number", Field::Number);
+  set(ret, "check_number", Field::CheckNumber);
+  set(ret, "date_of_birth", Field::DateOfBirth);
+  set(ret, "check_date_of_birth", Field::CheckDateOfBirth);
+  set(ret, "nationality", Field::Nationality);
+  set(ret, "sex", Field::Sex);
+  set(ret, "personal_number", Field::PersonalNumber);
+  set(ret, "check_personal_number", Field::CheckPersonalNumber);
+  set(ret, "optional1", Field::Optional1);
+  set(ret, "optional2", Field::Optional2);
+  set(ret, "check_combined_2", Field::CheckCompLine2);
+  set(ret, "check_combined_12", Field::CheckCompLine12);
   Poco::JSON::Array raw;
   raw.set(0, val(Field::Raw1));
   raw.set(1, val(Field::Raw2));
-  if (_values.find(Field::Raw3) != _values.end()) {
+  if (exists(Field::Raw3)) {
     raw.set(2, val(Field::Raw3));
   }
   ret.set("raw", raw);
@@ -228,37 +290,74 @@ void Mrz::toJSON(ostream &os) const {
   ret.stringify(os, 2);
 }
 
-uint8_t Mrz::validate() const {
+bool Mrz::validate() const {
   bool validNumber = isValid(CheckNumber, {Number});
   bool validDateOfBirth = isValid(CheckDateOfBirth, {DateOfBirth});
   bool validExpirationDate = isValid(CheckExpirationDate, {ExpirationDate});
   bool validSex = (_values.at(Sex).find_first_of("MF<") != string::npos);
   bool validAll =
       validNumber && validDateOfBirth && validExpirationDate && validSex;
-  // TBD: bool CheckPersonalNumber etc
-  if (_values.find(CheckCompLine12) != _values.end()) {
+
+  if (exists(CheckPersonalNumber)) {
+    bool valid = isValid(CheckPersonalNumber, {PersonalNumber});
+    validAll &= valid;
+  }
+
+  if (exists(CheckCompLine2)) {
+    bool valid = isValid(CheckCompLine2,
+                         {Number, CheckNumber, DateOfBirth, CheckDateOfBirth,
+                          ExpirationDate, CheckExpirationDate, PersonalNumber,
+                          CheckPersonalNumber});
+    validAll &= valid;
+  }
+
+  if (exists(CheckCompLine12)) {
     bool valid =
         isValid(CheckCompLine12,
                 {Number, CheckNumber, Optional1, DateOfBirth, CheckDateOfBirth,
                  ExpirationDate, CheckExpirationDate, Optional2});
     validAll &= valid;
   }
-  return int(validNumber) + int(validDateOfBirth) + int(validExpirationDate) +
-         int(validSex);
+  return validAll;
 }
 
 bool Mrz::isValid(Field check, initializer_list<Field> fields) const {
   string val;
-  for (Field field : fields) {
-    val += _values.at(field);
+  auto it = _values.find(check);
+  if (it == _values.end()) {
+    //printf("  ..valid %d: invald\n", check);
+    return false;
   }
-  printf("  ..valid %d: %c == %s\n", check, MrzValid::calc(val),
-         _values.at(check).c_str());
-  return (MrzValid::calc(val) == _values.at(check)[0]);
+  string const &checkstr = it->second;
+  if (checkstr.empty()) {
+    //printf("  ..valid %d: invald empty string\n", check);
+    return false;
+  }
+  if (checkstr.at(0) != '<' && (checkstr.at(0) < '0' || checkstr.at(0) > '9')) {
+    //printf("  ..valid %d: invald %s\n", check, checkstr.c_str());
+    return false;
+  }
+  for (Field field : fields) {
+    auto it = _values.find(field);
+    if (it == _values.end()) {
+      return false;
+    }
+    val += it->second;
+  }
+  //printf("  ..valid %d: %c == %s, val=%s\n", check, MrzValid::calc(val),
+  //       checkstr.c_str(), val.c_str());
+  if (checkstr.at(0) == '<') {
+    return val.find_first_not_of('<') == string::npos;
+  }
+  return (MrzValid::calc(val) == checkstr[0]);
 }
 
 void Mrz::postprocessNames() {
-  string combined = _values[NameCombined];
+  auto it = _values.find(NameCombined);
+  if (it == _values.end()) {
+    return;
+  }
+  string combined = it->second;
   size_t idx = combined.find("<<");
   replace(combined.begin(), combined.end(), '<', ' ');
   if (idx != string::npos) {
@@ -275,7 +374,7 @@ MrzItem const &Mrz::guessType(vector<string> const &lines) {
     return vTD1;
   }
   if (lines.size() == 2) {
-    bool isV = (lines[0][0] == 'V');
+    bool isV = (lines.at(0).at(0) == 'V');
     if (lines[0].size() < 40) {
       return isV ? vMRVB : vTD2;
     } else {

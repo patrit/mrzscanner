@@ -20,6 +20,7 @@ video {
     <canvas class="center-block" id="canvasOutput" width=640 height=360></canvas>
     <br/>
     <canvas class="center-block" id="canvasRoi" width=640 height=100></canvas>
+    <textarea class="center-block" id="mrztext"></textarea>
     <br/>
     <canvas class="center-block" id="canvasPass" width=640 height=480></canvas>
     <video id="video">Your browser does not support the video tag.</video>
@@ -30,8 +31,9 @@ video {
 <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.6.5/dat.gui.min.js"></script>
 <script async src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js" onload="opencvIsReady()"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 <!--<script async src="tesseract/tesseract.min.js"></script>-->
-<script src='https://cdn.jsdelivr.net/gh/naptha/tesseract.js@v1.0.14/dist/tesseract.min.js'></script>
+<!--<script src='https://cdn.jsdelivr.net/gh/naptha/tesseract.js@v1.0.14/dist/tesseract.min.js'></script>-->
 
 
 </head>
