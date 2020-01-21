@@ -1,3 +1,6 @@
+#ifndef MRZ_VALID_H
+#define MRZ_VALID_H
+
 #include <string>
 
 // c.f. https://www.icao.int/publications/Documents/9303_p3_cons_en.pdf
@@ -13,3 +16,5 @@ public:
 private:
   static uint8_t val(char c);
 };
+
+#endif

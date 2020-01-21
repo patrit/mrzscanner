@@ -1,11 +1,16 @@
-#include <map>
+#ifndef MRZ_CLEANUP_H
+#define MRZ_CLEANUP_H
+
 #include <string_view>
+#include <unordered_map>
 
 class MrzCleaner {
 public:
-  MrzCleaner(std::map<char, char> spec);
+  MrzCleaner(std::unordered_map<char, char> spec);
   std::string fix(std::string_view str, size_t len) const;
 
 private:
-  std::map<char, char> _map;
+  std::unordered_map<char, char> _map;
 };
+
+#endif

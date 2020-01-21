@@ -1,4 +1,5 @@
 #include "Tesseract.hpp"
+#include <iostream>
 #include <leptonica/allheaders.h>
 #include <mutex>
 #include <string>
@@ -6,17 +7,16 @@
 
 Tesseract::Tesseract() {
   api = new tesseract::TessBaseAPI();
-  if (api->Init("/app/tesseract/lang", "ocrb_int")) {
+  if (api->Init("tesseract/lang", "ocrb_int")) {
     fprintf(stderr, "Could not initialize tesseract.\n");
     exit(1);
   }
+  api->SetPageSegMode(tesseract::PSM_AUTO);
 }
 
 Tesseract::~Tesseract() {
   // Destroy used object and release memory
-  if(api != nullptr) {
-    api->End();
-  }
+  api->End();
 }
 
 std::string Tesseract::analyze(std::string const &data) {
@@ -26,7 +26,6 @@ std::string Tesseract::analyze(std::string const &data) {
   if (api->GetSourceYResolution() == 0) {
     api->SetSourceResolution(92);
   }
-  api->Recognize(nullptr);
   const char *outText = api->GetUTF8Text();
   std::string ret(outText);
   delete[] outText;

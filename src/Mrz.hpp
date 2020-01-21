@@ -1,34 +1,13 @@
-#include <Poco/JSON/Object.h>
+#ifndef MRZ_MRZ_H
+#define MRZ_MRZ_H
+
 #include <map>
+#include <tuple>
 #include <vector>
 
 #include "MrzCleaner.hpp"
-
-enum Field {
-  MrzType,
-  Type,
-  Country,
-  NameCombined,
-  Surname,
-  Names,
-  Number,
-  CheckNumber,
-  Nationality,
-  DateOfBirth,
-  CheckDateOfBirth,
-  Sex,
-  ExpirationDate,
-  CheckExpirationDate,
-  Optional1,
-  Optional2,
-  PersonalNumber,
-  CheckPersonalNumber,
-  CheckCompLine2,
-  CheckCompLine12,
-  Raw1,
-  Raw2,
-  Raw3
-};
+#include "MrzFields.hpp"
+#include "MrzValue.hpp"
 
 struct MrzField {
   Field field;
@@ -46,22 +25,25 @@ struct MrzItem {
 
 class Mrz {
 public:
-  Mrz(std::string const &lines);
+  Mrz(std::string const &lines, bool debug);
 
+  bool detected() const { return !_values.empty(); }
+  std::string const &val(Field field) const;
   std::string toJSON() const;
   void toJSON(std::ostream &os) const;
-  bool valid() const { return _valid; }
+  std::string const &getDebugString() const { return _debugstr; }
 
 private:
-  std::map<Field, std::string> _values;
-  bool _valid;
+  std::string const &_datastring;
+  bool _debug;
+  std::string _debugstr;
+  std::map<Field, MrzValue> _values;
 
-  void set(Poco::JSON::Object &sum, std::string const &key, Field field) const;
-  std::string const &val(Field field) const;
-  bool exists(Field field) const;
-  bool validate() const;
-  bool isValid(Field check, std::initializer_list<Field> fields) const;
+  std::tuple<uint8_t, uint8_t> validate();
+  std::string concatCheckString(Field check,
+                                std::vector<Field> const &fields) const;
   void postprocessNames();
   MrzItem const &guessType(std::vector<std::string> const &lines);
-  std::string rawString() const;
 };
+
+#endif

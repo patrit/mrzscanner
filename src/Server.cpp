@@ -11,11 +11,14 @@
 #include <Poco/Net/ServerSocket.h>
 #include <Poco/Path.h>
 #include <Poco/StreamCopier.h>
+#include <Poco/URI.h>
 #include <Poco/Util/ServerApplication.h>
+#include <experimental/filesystem>
 #include <iostream>
 #include <string>
 #include <unordered_map>
 
+#include "Countries.hpp"
 #include "Mrz.hpp"
 #include "Tesseract.hpp"
 
@@ -24,12 +27,7 @@ using namespace Poco::Util;
 using namespace Poco::JSON;
 using namespace Poco::Dynamic;
 using namespace std;
-
-namespace {
-const unordered_map<string, string> existingfiles = {
-#include "files.inc"
-};
-} // namespace
+namespace fs = std::experimental::filesystem;
 
 class MrzRequestHandler : public HTTPRequestHandler {
   Tesseract &_tess;
@@ -38,62 +36,102 @@ class MrzRequestHandler : public HTTPRequestHandler {
 public:
   MrzRequestHandler(Tesseract &tess) : _tess(tess){};
   virtual void handleRequest(HTTPServerRequest &req, HTTPServerResponse &resp) {
-    try {
-      string data;
-      Poco::StreamCopier::copyToString(req.stream(), data);
-      // parse JSON
-      Var result = parser.parse(data);
-      auto object = result.extract<Object::Ptr>();
-      string fileData = object->getValue<string>("media");
-      istringstream instream(fileData);
-      Poco::Base64Decoder decoder(instream);
-      string decoded;
-      Poco::StreamCopier::copyToString(decoder, decoded);
-      // OCR
-      string ret = _tess.analyze(decoded);
-      // MRZ
-      Mrz mrz(ret);
-      if (mrz.valid()) {
-        resp.setStatus(HTTPResponse::HTTP_OK);
-        resp.setContentType("application/json");
-        ostream &out = resp.send();
-        mrz.toJSON(out);
-        out.flush();
-      } else {
-        resp.setStatus(HTTPResponse::HTTP_BAD_REQUEST);
+    Poco::URI uri(req.getURI());
+    auto query = uri.getQueryParameters();
+    bool debug = false;
+    for (auto const &[key, val] : query) {
+      if (key == "debugonly" && val == "true") {
+        debug = true;
       }
-    } catch (...) {
-      resp.setStatus(HTTPResponse::HTTP_BAD_REQUEST);
     }
+    string data;
+    Poco::StreamCopier::copyToString(req.stream(), data);
+    // parse JSON
+    Var result = parser.parse(data);
+    auto object = result.extract<Object::Ptr>();
+    string file_data = object->getValue<string>("file_data");
+    istringstream instream(file_data);
+    Poco::Base64Decoder decoder(instream);
+    string decoded;
+    Poco::StreamCopier::copyToString(decoder, decoded);
+    // OCR
+    string ret = _tess.analyze(decoded);
+    // MRZ
+    Mrz mrz(ret, debug);
+
+    resp.setStatus(mrz.detected() ? HTTPResponse::HTTP_OK
+                                  : HTTPResponse::HTTP_BAD_REQUEST);
+    ostream &out = resp.send();
+    if (debug) {
+      resp.setContentType("text/plain");
+      out << mrz.getDebugString();
+    } else {
+      resp.setContentType("application/json");
+      mrz.toJSON(out);
+    }
+    out.flush();
   }
 };
 
-class FileRequestHandler : public HTTPRequestHandler {
+class CountryRequestHandler : public HTTPRequestHandler {
 public:
   virtual void handleRequest(HTTPServerRequest &req, HTTPServerResponse &resp) {
+    resp.setStatus(HTTPResponse::HTTP_OK);
+    resp.setContentType("application/json");
+    Countries::toJson(resp.send());
+    resp.send().flush();
+  }
+};
+
+namespace {
+unordered_map<string, string> mimetypes = {
+    {".png", "image/png"},
+    {".css", "text/css"},
+    {".html", "text/html"},
+    {".js", "application/javascript"},
+};
+string octet_stream("application/octet-stream");
+} // namespace
+
+class FileRequestHandler : public HTTPRequestHandler {
+  string _path;
+
+public:
+  FileRequestHandler(string path) : _path(std::move(path)){};
+  virtual void handleRequest(HTTPServerRequest &req, HTTPServerResponse &resp) {
     string base = ".";
-    string uri = req.getURI();
-    if (uri == "/") {
-      resp.redirect("/static/index.html");
-      return;
-    } else if (uri == "/favicon.ico") {
-      uri = "/static" + uri;
+    string fname = base + _path;
+    auto path = fs::path(fname);
+    fs::file_status status = fs::status(path);
+    if (fs::is_directory(status)) {
+      fname += "index.html";
     }
-    auto it = existingfiles.find(uri);
-    if (it == existingfiles.end()) {
+    resp.setChunkedTransferEncoding(true);
+    bool exists = fs::exists(fname);
+    if (!exists) {
       resp.setStatus(HTTPResponse::HTTP_NOT_FOUND);
       return;
     }
-    string fn = base + it->first;
+    path = fs::path(fname);
+    auto it = mimetypes.find(path.extension());
+    if (it != mimetypes.end()) {
+      resp.setContentType(it->second);
+    } else {
+      resp.setContentType(octet_stream);
+    }
+    // check if compressed version of the file exists
+    string fnamegz = base + req.getURI() + ".gz";
     if (req.get("Accept-Encoding", "").find("gzip") != string::npos) {
-      auto itgz = existingfiles.find(uri + ".gz");
-      if (itgz != existingfiles.end()) {
+      if (fs::exists(fnamegz)) {
         resp.set("Content-Encoding", "gzip");
-        fn = base + itgz->first;
+        fname = fnamegz;
       }
     }
     resp.setStatus(HTTPResponse::HTTP_OK);
-    resp.sendFile(fn, it->second);
+    Poco::FileInputStream fis(fname);
+    ostream &out = resp.send();
+    out << fis.rdbuf();
+    out.flush();
   }
 };
 
@@ -103,10 +141,15 @@ class RequestHandlerFactory : public HTTPRequestHandlerFactory {
 public:
   virtual HTTPRequestHandler *
   createRequestHandler(const HTTPServerRequest &req) {
-    if (req.getURI() == "/mrz" && (req.getMethod() == HTTPRequest::HTTP_POST)) {
+    Poco::URI uri(req.getURI());
+    if (uri.getPath() == "/mrz/api/v1/analyze_image" &&
+        (req.getMethod() == HTTPRequest::HTTP_POST)) {
       return new MrzRequestHandler(_tess);
+    } else if (uri.getPath() == "/mrz/api/v1/countries" &&
+               (req.getMethod() == HTTPRequest::HTTP_GET)) {
+      return new CountryRequestHandler();
     } else if (req.getMethod() == HTTPRequest::HTTP_GET) {
-      return new FileRequestHandler();
+      return new FileRequestHandler(uri.getPath());
     }
     return nullptr;
   }

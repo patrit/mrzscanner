@@ -1,10 +1,8 @@
 #include "MrzCleaner.hpp"
 
-#include <map>
-
 using namespace std;
 
-MrzCleaner::MrzCleaner(map<char, char> spec) : _map(spec) {}
+MrzCleaner::MrzCleaner(unordered_map<char, char> spec) : _map(spec) {}
 
 string MrzCleaner::fix(string_view str, size_t len) const {
   string ret;
@@ -15,6 +13,9 @@ string MrzCleaner::fix(string_view str, size_t len) const {
     } else {
       ret += c;
     }
+  }
+  if (ret.size() < len) {
+    ret.insert(ret.end(), len - ret.size(), '<');
   }
   return ret;
 };

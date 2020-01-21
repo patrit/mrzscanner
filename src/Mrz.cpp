@@ -3,23 +3,20 @@
 #include <Poco/Dynamic/Var.h>
 #include <Poco/JSON/JSON.h>
 #include <Poco/JSON/Parser.h>
-#include <Poco/Logger.h>
 #include <algorithm>
 #include <initializer_list>
-#include <map>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
+#include "Countries.hpp"
 #include "MrzValid.hpp"
 
 using namespace std;
-using Poco::Logger;
 
 namespace {
 
-Logger &logger = Logger::get("MRZ");
-
-enum Space { Erase, Fill };
+enum Split { KeepSpace, DropSpace, FillSpace };
 
 MrzCleaner fixNone({});
 MrzCleaner fixAlpha({{'0', 'O'},
@@ -36,223 +33,250 @@ MrzCleaner fixNumeric({{'B', '8'},
                        {'I', '1'},
                        {'O', '0'},
                        {'Q', '0'},
-                       {'R', '2'},
                        {'S', '5'},
                        {'Z', '2'}});
 
 // c.f. https://en.wikipedia.org/wiki/Machine-readable_passport
 // Passport booklets
-MrzItem vTD3{"TD3",
-             44,
-             {
-                 {Field::Type, 0, 0, 2, fixAlpha},
-                 {Field::Country, 0, 2, 3, fixAlpha},
-                 {Field::NameCombined, 0, 5, 39, fixAlpha},
-                 {Field::Number, 1, 0, 9, fixNone},
-                 {Field::CheckNumber, 1, 9, 1, fixNumeric},
-                 {Field::Nationality, 1, 10, 3, fixAlpha},
-                 {Field::DateOfBirth, 1, 13, 6, fixNumeric},
-                 {Field::CheckDateOfBirth, 1, 19, 1, fixNumeric},
-                 {Field::Sex, 1, 20, 1, fixAlpha},
-                 {Field::ExpirationDate, 1, 21, 6, fixNumeric},
-                 {Field::CheckExpirationDate, 1, 27, 1, fixNumeric},
-                 {Field::PersonalNumber, 1, 28, 14, fixNone},
-                 {Field::CheckPersonalNumber, 1, 42, 1, fixNumeric},
-                 {Field::CheckCompLine2, 1, 43, 1, fixNumeric},
-             }};
-MrzItem vTD2{"TD2",
-             36,
-             {
-                 {Field::Type, 0, 0, 2, fixAlpha},
-                 {Field::Country, 0, 2, 3, fixAlpha},
-                 {Field::NameCombined, 0, 5, 31, fixAlpha},
-                 {Field::Number, 1, 0, 9, fixNone},
-                 {Field::CheckNumber, 1, 9, 1, fixNumeric},
-                 {Field::Nationality, 1, 10, 3, fixAlpha},
-                 {Field::DateOfBirth, 1, 13, 6, fixNumeric},
-                 {Field::CheckDateOfBirth, 1, 19, 1, fixNumeric},
-                 {Field::Sex, 1, 20, 1, fixAlpha},
-                 {Field::ExpirationDate, 1, 21, 6, fixNumeric},
-                 {Field::CheckExpirationDate, 1, 27, 1, fixNumeric},
-                 {Field::Optional1, 1, 28, 7, fixNone},
-                 {Field::CheckCompLine2, 1, 35, 1, fixNumeric},
-             }};
+static MrzItem vTD3{"TD3",
+                    44,
+                    {
+                        {Field::Type, 0, 0, 2, fixAlpha},
+                        {Field::Country, 0, 2, 3, fixAlpha},
+                        {Field::NameCombined, 0, 5, 39, fixAlpha},
+                        {Field::Number, 1, 0, 9, fixNone},
+                        {Field::CheckNumber, 1, 9, 1, fixNumeric},
+                        {Field::Nationality, 1, 10, 3, fixAlpha},
+                        {Field::DateOfBirth, 1, 13, 6, fixNumeric},
+                        {Field::CheckDateOfBirth, 1, 19, 1, fixNumeric},
+                        {Field::Sex, 1, 20, 1, fixAlpha},
+                        {Field::ExpirationDate, 1, 21, 6, fixNumeric},
+                        {Field::CheckExpirationDate, 1, 27, 1, fixNumeric},
+                        {Field::PersonalNumber, 1, 28, 14, fixNone},
+                        {Field::CheckPersonalNumber, 1, 42, 1, fixNumeric},
+                        {Field::CheckCompLine2_td3, 1, 43, 1, fixNumeric},
+                    }};
+static MrzItem vTD2{"TD2",
+                    36,
+                    {
+                        {Field::Type, 0, 0, 2, fixAlpha},
+                        {Field::Country, 0, 2, 3, fixAlpha},
+                        {Field::NameCombined, 0, 5, 31, fixAlpha},
+                        {Field::Number, 1, 0, 9, fixNone},
+                        {Field::CheckNumber, 1, 9, 1, fixNumeric},
+                        {Field::Nationality, 1, 10, 3, fixAlpha},
+                        {Field::DateOfBirth, 1, 13, 6, fixNumeric},
+                        {Field::CheckDateOfBirth, 1, 19, 1, fixNumeric},
+                        {Field::Sex, 1, 20, 1, fixAlpha},
+                        {Field::ExpirationDate, 1, 21, 6, fixNumeric},
+                        {Field::CheckExpirationDate, 1, 27, 1, fixNumeric},
+                        {Field::Optional1, 1, 28, 7, fixNone},
+                        {Field::CheckCompLine2_td2, 1, 35, 1, fixNumeric},
+                    }};
 // Official travel documents
-MrzItem vTD1{"TD1",
-             30,
-             {
-                 {Field::Type, 0, 0, 2, fixAlpha},
-                 {Field::Country, 0, 2, 3, fixAlpha},
-                 {Field::Number, 0, 5, 9, fixNone},
-                 {Field::CheckNumber, 0, 14, 1, fixNumeric},
-                 {Field::Optional1, 0, 15, 15, fixNone},
-                 {Field::DateOfBirth, 1, 0, 6, fixNumeric},
-                 {Field::CheckDateOfBirth, 1, 6, 1, fixNumeric},
-                 {Field::Sex, 1, 7, 1, fixAlpha},
-                 {Field::ExpirationDate, 1, 8, 6, fixNumeric},
-                 {Field::CheckExpirationDate, 1, 14, 1, fixNumeric},
-                 {Field::Nationality, 1, 15, 3, fixAlpha},
-                 {Field::Optional2, 1, 18, 11, fixNone},
-                 {Field::CheckCompLine12, 1, 29, 1, fixNumeric},
-                 {Field::NameCombined, 2, 0, 30, fixAlpha},
-             }};
+static MrzItem vTD1{"TD1",
+                    30,
+                    {
+                        {Field::Type, 0, 0, 2, fixAlpha},
+                        {Field::Country, 0, 2, 3, fixAlpha},
+                        {Field::Number, 0, 5, 9, fixNone},
+                        {Field::CheckNumber, 0, 14, 1, fixNumeric},
+                        {Field::Optional1, 0, 15, 15, fixNone},
+                        {Field::DateOfBirth, 1, 0, 6, fixNumeric},
+                        {Field::CheckDateOfBirth, 1, 6, 1, fixNumeric},
+                        {Field::Sex, 1, 7, 1, fixAlpha},
+                        {Field::ExpirationDate, 1, 8, 6, fixNumeric},
+                        {Field::CheckExpirationDate, 1, 14, 1, fixNumeric},
+                        {Field::Nationality, 1, 15, 3, fixAlpha},
+                        {Field::Optional2, 1, 18, 11, fixNone},
+                        {Field::CheckCompLine12, 1, 29, 1, fixNumeric},
+                        {Field::NameCombined, 2, 0, 30, fixAlpha},
+                    }};
 // Machine-readable visas
-MrzItem vMRVA{"MRVA",
-              44,
-              {
-                  {Field::Type, 0, 0, 1, fixAlpha},
-                  {Field::Country, 0, 1, 2, fixAlpha},
-                  {Field::NameCombined, 0, 5, 39, fixAlpha},
-                  {Field::Number, 1, 0, 9, fixNone},
-                  {Field::CheckNumber, 1, 9, 1, fixNumeric},
-                  {Field::Nationality, 1, 10, 3, fixAlpha},
-                  {Field::DateOfBirth, 1, 13, 6, fixNumeric},
-                  {Field::CheckDateOfBirth, 1, 19, 1, fixNumeric},
-                  {Field::Sex, 1, 20, 1, fixAlpha},
-                  {Field::ExpirationDate, 1, 21, 6, fixNumeric},
-                  {Field::CheckExpirationDate, 1, 27, 1, fixNumeric},
-                  {Field::Optional1, 1, 28, 16, fixNone},
-              }};
-MrzItem vMRVB{"MRVB",
-              36,
-              {
-                  {Field::Type, 0, 0, 1, fixAlpha},
-                  {Field::Country, 0, 1, 2, fixAlpha},
-                  {Field::NameCombined, 0, 5, 31, fixAlpha},
-                  {Field::Number, 1, 0, 9, fixNone},
-                  {Field::CheckNumber, 1, 9, 1, fixNumeric},
-                  {Field::Nationality, 1, 10, 3, fixAlpha},
-                  {Field::DateOfBirth, 1, 13, 6, fixNumeric},
-                  {Field::CheckDateOfBirth, 1, 19, 1, fixNumeric},
-                  {Field::Sex, 1, 20, 1, fixAlpha},
-                  {Field::ExpirationDate, 1, 21, 6, fixNumeric},
-                  {Field::CheckExpirationDate, 1, 27, 1, fixNumeric},
-                  {Field::Optional1, 1, 28, 8, fixNone},
-              }};
-MrzItem vEmpty{"empty", {}};
+static MrzItem vMRVA{"MRVA",
+                     44,
+                     {
+                         {Field::Type, 0, 0, 2, fixAlpha},
+                         {Field::Country, 0, 2, 3, fixAlpha},
+                         {Field::NameCombined, 0, 5, 39, fixAlpha},
+                         {Field::Number, 1, 0, 9, fixNone},
+                         {Field::CheckNumber, 1, 9, 1, fixNumeric},
+                         {Field::Nationality, 1, 10, 3, fixAlpha},
+                         {Field::DateOfBirth, 1, 13, 6, fixNumeric},
+                         {Field::CheckDateOfBirth, 1, 19, 1, fixNumeric},
+                         {Field::Sex, 1, 20, 1, fixAlpha},
+                         {Field::ExpirationDate, 1, 21, 6, fixNumeric},
+                         {Field::CheckExpirationDate, 1, 27, 1, fixNumeric},
+                         {Field::Optional1, 1, 28, 16, fixNone},
+                     }};
+static MrzItem vMRVB{"MRVB",
+                     36,
+                     {
+                         {Field::Type, 0, 0, 2, fixAlpha},
+                         {Field::Country, 0, 2, 3, fixAlpha},
+                         {Field::NameCombined, 0, 5, 31, fixAlpha},
+                         {Field::Number, 1, 0, 9, fixNone},
+                         {Field::CheckNumber, 1, 9, 1, fixNumeric},
+                         {Field::Nationality, 1, 10, 3, fixAlpha},
+                         {Field::DateOfBirth, 1, 13, 6, fixNumeric},
+                         {Field::CheckDateOfBirth, 1, 19, 1, fixNumeric},
+                         {Field::Sex, 1, 20, 1, fixAlpha},
+                         {Field::ExpirationDate, 1, 21, 6, fixNumeric},
+                         {Field::CheckExpirationDate, 1, 27, 1, fixNumeric},
+                         {Field::Optional1, 1, 28, 8, fixNone},
+                     }};
+static MrzItem vIDFRA{"IDFRA",
+                      36,
+                      {
+                          {Field::Type, 0, 0, 2, fixAlpha},
+                          {Field::Country, 0, 2, 3, fixAlpha},
+                          {Field::Surname, 0, 5, 25, fixAlpha},
+                          {Field::Optional1, 0, 30, 6, fixNone},
+                          {Field::CreationDate, 1, 0, 4, fixNumeric},
+                          {Field::Optional2, 1, 4, 3, fixNone},
+                          {Field::Number, 1, 7, 5, fixNumeric},
+                          {Field::CheckCompLine2_fra, 1, 12, 1, fixNumeric},
+                          {Field::Names, 1, 13, 14, fixAlpha},
+                          {Field::DateOfBirth, 1, 27, 6, fixNumeric},
+                          {Field::CheckDateOfBirth, 1, 33, 1, fixNumeric},
+                          {Field::Sex, 1, 34, 1, fixNone},
+                          {Field::CheckCompLine12_fra, 1, 35, 1, fixNumeric},
+                      }};
+static MrzItem vEmpty{"empty", {}};
 
-vector<string_view> split(string const &datastr) {
+unordered_map<Field, vector<Field>> _checks = {
+    {Field::CheckNumber, {Field::Number}},
+    {Field::CheckDateOfBirth, {Field::DateOfBirth}},
+    {Field::CheckExpirationDate, {Field::ExpirationDate}},
+    {CheckCompLine2_td2,
+     {Field::Number, Field::CheckNumber, Field::DateOfBirth,
+      Field::CheckDateOfBirth, Field::ExpirationDate,
+      Field::CheckExpirationDate, Field::Optional1}},
+    {CheckCompLine2_td3,
+     {Field::Number, Field::CheckNumber, Field::DateOfBirth,
+      Field::CheckDateOfBirth, Field::ExpirationDate,
+      Field::CheckExpirationDate, Field::PersonalNumber,
+      Field::CheckPersonalNumber}},
+    {Field::CheckCompLine12,
+     {Field::Number, Field::CheckNumber, Field::Optional1, Field::DateOfBirth,
+      Field::CheckDateOfBirth, Field::ExpirationDate,
+      Field::CheckExpirationDate, Field::Optional2}},
+    {Field::CheckCompLine2_fra,
+     {Field::CreationDate, Field::Optional2, Field::Number}},
+    {Field::CheckCompLine12_fra,
+     {Field::Type, Field::Country, Field::Surname, Field::Optional1,
+      Field::CreationDate, Field::Optional2, Field::Number,
+      Field::CheckCompLine2_fra, Field::Names, Field::DateOfBirth,
+      Field::CheckDateOfBirth, Field::Sex}}};
+
+vector<string> split(string const &datastr, Split splittype) {
   string_view data = datastr;
-  vector<string_view> tmplines;
-  size_t begin = 0;
-  size_t end = 0;
-  while ((end = data.find('\n', begin)) != string_view::npos) {
-    size_t len = end - begin;
-    if (len > 28) {
-      string_view line = data.substr(begin, len);
+  vector<string> tmplines;
+  while (data.size() > 0) {
+    size_t idx = data.find('\n');
+    if (idx > 28 && idx < 50) {
+      string_view sv = data.substr(0, idx);
+      string line(sv.data(), sv.size());
+      // guarantee consistent format
+      switch (splittype) {
+      case Split::DropSpace:
+        line.erase(std::remove(line.begin(), line.end(), ' '), line.end());
+        break;
+      case Split::FillSpace:
+        replace(line.begin(), line.end(), ' ', '<');
+        break;
+      case Split::KeepSpace:
+        break;
+      }
       tmplines.push_back(line);
-      cout << line << end;
+      // printf("%s\n", string(data.substr(0, idx)).c_str());
     }
-    begin = end + 1;
+    if (idx != string_view::npos) {
+      data.remove_prefix(idx + 1);
+    }
   }
   return tmplines;
 }
-
-void fill(vector<string> &lines, Space spaceBhv) {
-  for (string &line : lines) {
-    // guarantee consistent format
-    switch (spaceBhv) {
-    case Space::Fill:
-      replace(line.begin(), line.end(), ' ', '<');
-      break;
-    case Space::Erase:
-      line.erase(remove_if(line.begin(), line.end(), ::isspace), line.end());
-      break;
-    }
-    // guarantee enough characters (exceeding here)
-    line.insert(line.end(), 46 - line.size(), '<');
-  }
-}
 } // namespace
 
-Mrz::Mrz(string const &datastr) : _values(), _valid(false) {
-  // do some brute force on OCR lines
-  // remove spaces or replace them with a '<'
-  for (Space spaceBhv : {Space::Erase, Space::Fill}) {
-    vector<string_view> origlines = split(datastr);
-    // either 2 or 3 lines
+Mrz::Mrz(string const &datastr, bool debug)
+    : _datastring(datastr), _debug(debug), _debugstr(), _values() {
+  if (_debug) {
+    _debugstr.reserve(32768);
+    _debugstr += "Parsed string:\n" + datastr;
+  }
+  for (Split splittype : {Split::DropSpace, Split::FillSpace}) {
+    vector<string> origlines = split(datastr, splittype);
     for (size_t numlines : {3, 2}) {
-      if (origlines.size() < numlines) {
-        continue;
-      }
-      // sliding window: iterate over all lines
-      for (size_t lo = 0; lo <= origlines.size() - numlines; lo++) {
-        logger.debug("sliding window: 0..[%zd..%zd]..%zd", lo, lo + numlines,
-                     origlines.size());
+      for (size_t lo = 0; lo + numlines <= origlines.size(); lo++) {
+        if (_debug) {
+          _debugstr += "\nIteration: #lines=" + to_string(numlines);
+          _debugstr += ", loop=" + to_string(lo) + "/";
+          _debugstr += to_string(origlines.size() - numlines) + "\n";
+        }
+        // sliding window
         vector<string> lines;
-        std::transform(origlines.begin() + lo,
-                       origlines.begin() + lo + numlines, back_inserter(lines),
-                       [](string_view const &sv) { return string(sv); });
-        // try to skip the first character - helps with spurious character
-        // detection
-        for (size_t offset = 0; offset < round(exp2(numlines)); offset++) {
-          size_t off = offset;
+        copy(origlines.begin() + lo, origlines.begin() + lo + numlines,
+             std::back_inserter(lines));
+        for (size_t offset = 0; offset < 2; offset++) {
+          if (_debug) {
+            _debugstr += "Lines:\n";
+          }
           for (string &line : lines) {
-            line = line.substr(off % 2);
-            off = off / 2;
+            line = line.substr(offset);
+            if (_debug) {
+              _debugstr += line + "\n";
+            }
           }
           MrzItem const &mrzitem = guessType(lines);
           if (mrzitem.fields.empty()) {
-            logger.debug("Not identified");
+            if (_debug) {
+              _debugstr += "Unable to identify mrz type\n";
+            }
             continue;
           }
-          // fill empty spaces
-          fill(lines, spaceBhv);
-          // fill fields
-          _values[MrzType] = mrzitem.name;
-          for (size_t idx = 0; idx < numlines; idx++) {
-            Field field = Field(Raw1 + idx);
-            _values[field] = lines.at(idx).substr(0, mrzitem.length);
+          for (string &line : lines) {
+            if (line.size() < mrzitem.length) {
+              line.insert(line.end(), mrzitem.length - line.size(), '<');
+            }
+          }
+          _values[Field::MrzType] = mrzitem.name;
+          _values[Field::Raw1] = lines.at(0);
+          _values[Field::Raw2] = lines.at(1);
+          if (lines.size() > 2) {
+            _values[Field::Raw3] = lines.at(2);
           }
           for (MrzField const &item : mrzitem.fields) {
-            string_view line = lines.at(item.line);
+            string_view line = lines[item.line];
             line = line.substr(item.start, item.length);
             _values[item.field] = item.cleaner.fix(line, item.length);
           }
-          postprocessNames();
-          _valid = validate();
-          if (_valid) {
-            logger.information("Using MRZ:\n%s", rawString());
+          auto [valid, num] = validate();
+          if (_debug) {
+            _debugstr +=
+                "validate=" + to_string(valid) + "/" + to_string(num) + "\n";
+          }
+          if (valid == num) {
+            postprocessNames();
+            if (_debug) {
+              _debugstr += "Using:\n";
+              _debugstr += toJSON() + "\n";
+            }
             return;
           } else {
-            logger.debug("Invalid MRZ:\n%s", rawString());
-            _values.clear();
+            if (_debug) {
+              _debugstr += "Dropping:\n";
+              _debugstr += toJSON() + "\n";
+            }
           }
+          _values.clear();
         }
       }
     }
   }
 }
 
-string const &Mrz::val(Field field) const {
-  static string empty;
-  auto it = _values.find(field);
-  return (it == _values.end()) ? empty : it->second;
-}
-
-void Mrz::set(Poco::JSON::Object &sum, string const &key, Field field) const {
-  auto it = _values.find(field);
-  if (it != _values.end()) {
-    string const &val = it->second;
-    if (val.find_first_not_of('<') != string::npos) {
-      sum.set(key, val);
-    }
-  }
-}
-
-bool Mrz::exists(Field field) const {
-  return _values.find(field) != _values.end();
-}
-
-string Mrz::rawString() const {
-  string ret = val(Field::Raw1) + '\n' + val(Field::Raw2);
-  if (exists(Field::Raw3)) {
-    ret += '\n' + val(Field::Raw3);
-  }
-  return ret;
-}
-
-string Mrz::toJSON() const {
+std::string Mrz::toJSON() const {
   ostringstream ostr;
   toJSON(ostr);
   return ostr.str();
@@ -260,112 +284,101 @@ string Mrz::toJSON() const {
 
 void Mrz::toJSON(ostream &os) const {
   Poco::JSON::Object ret;
-  set(ret, "mrz_type", Field::MrzType);
-  set(ret, "type", Field::Type);
-  set(ret, "country", Field::Country);
-  set(ret, "surname", Field::Surname);
-  set(ret, "names", Field::Names);
-  set(ret, "expiration_date", Field::ExpirationDate);
-  set(ret, "check_expiration_date", Field::CheckExpirationDate);
-  set(ret, "number", Field::Number);
-  set(ret, "check_number", Field::CheckNumber);
-  set(ret, "date_of_birth", Field::DateOfBirth);
-  set(ret, "check_date_of_birth", Field::CheckDateOfBirth);
-  set(ret, "nationality", Field::Nationality);
-  set(ret, "sex", Field::Sex);
-  set(ret, "personal_number", Field::PersonalNumber);
-  set(ret, "check_personal_number", Field::CheckPersonalNumber);
-  set(ret, "optional1", Field::Optional1);
-  set(ret, "optional2", Field::Optional2);
-  set(ret, "check_combined_2", Field::CheckCompLine2);
-  set(ret, "check_combined_12", Field::CheckCompLine12);
-  Poco::JSON::Array raw;
-  raw.set(0, val(Field::Raw1));
-  raw.set(1, val(Field::Raw2));
-  if (exists(Field::Raw3)) {
-    raw.set(2, val(Field::Raw3));
-  }
-  ret.set("raw", raw);
-
-  ret.stringify(os, 2);
-}
-
-bool Mrz::validate() const {
-  bool validNumber = isValid(CheckNumber, {Number});
-  bool validDateOfBirth = isValid(CheckDateOfBirth, {DateOfBirth});
-  bool validExpirationDate = isValid(CheckExpirationDate, {ExpirationDate});
-  bool validSex = (_values.at(Sex).find_first_of("MF<") != string::npos);
-  bool validAll =
-      validNumber && validDateOfBirth && validExpirationDate && validSex;
-
-  if (exists(CheckPersonalNumber)) {
-    bool valid = isValid(CheckPersonalNumber, {PersonalNumber});
-    validAll &= valid;
-  }
-
-  if (exists(CheckCompLine2)) {
-    bool valid = isValid(CheckCompLine2,
-                         {Number, CheckNumber, DateOfBirth, CheckDateOfBirth,
-                          ExpirationDate, CheckExpirationDate, PersonalNumber,
-                          CheckPersonalNumber});
-    validAll &= valid;
-  }
-
-  if (exists(CheckCompLine12)) {
-    bool valid =
-        isValid(CheckCompLine12,
-                {Number, CheckNumber, Optional1, DateOfBirth, CheckDateOfBirth,
-                 ExpirationDate, CheckExpirationDate, Optional2});
-    validAll &= valid;
-  }
-  return validAll;
-}
-
-bool Mrz::isValid(Field check, initializer_list<Field> fields) const {
-  string val;
-  auto it = _values.find(check);
-  if (it == _values.end()) {
-    //printf("  ..valid %d: invald\n", check);
-    return false;
-  }
-  string const &checkstr = it->second;
-  if (checkstr.empty()) {
-    //printf("  ..valid %d: invald empty string\n", check);
-    return false;
-  }
-  if (checkstr.at(0) != '<' && (checkstr.at(0) < '0' || checkstr.at(0) > '9')) {
-    //printf("  ..valid %d: invald %s\n", check, checkstr.c_str());
-    return false;
-  }
-  for (Field field : fields) {
-    auto it = _values.find(field);
-    if (it == _values.end()) {
-      return false;
+  if (_values.empty()) {
+    Poco::JSON::Array raw;
+    vector<string> lines = split(_datastring, Split::KeepSpace);
+    size_t idx = 0;
+    for (string const &line : lines) {
+      raw.set(idx, line);
+      idx++;
     }
-    val += it->second;
+    ret.set("raw", raw);
+    ret.stringify(os, 2);
+  } else {
+    for (auto const &[field, fieldname] : MrzFields::getMap()) {
+      auto it = _values.find(field);
+      if (it != _values.end() && !fieldname.empty()) {
+        MrzValue const &val = it->second;
+        if (val.isCheck()) {
+          Poco::JSON::Object check;
+          check.set("check_expected", val.getCheckExpected());
+          check.set("check_calculated", val.getCheckCalculated());
+          check.set("concatenated_string", val.getConcatenatedString());
+          check.set("is_valid", val.isValid());
+          ret.set(fieldname, check);
+        } else {
+
+          ret.set(fieldname, val.getValue());
+        }
+      }
+    }
+    Poco::JSON::Array raw;
+    raw.set(0, _values.at(Field::Raw1).getValue());
+    raw.set(1, _values.at(Field::Raw2).getValue());
+    if (_values.find(Field::Raw3) != _values.end()) {
+      raw.set(2, _values.at(Field::Raw3).getValue());
+    }
+    ret.set("raw", raw);
+    ret.stringify(os, 2);
   }
-  //printf("  ..valid %d: %c == %s, val=%s\n", check, MrzValid::calc(val),
-  //       checkstr.c_str(), val.c_str());
-  if (checkstr.at(0) == '<') {
-    return val.find_first_not_of('<') == string::npos;
+}
+
+std::tuple<uint8_t, uint8_t> Mrz::validate() {
+  uint8_t num = 1;
+  uint8_t numValid =
+      int(_values.at(Sex).getValue().find_first_of("MF<") != string::npos);
+  num++;
+  numValid += int(Countries::has_country(_values.at(Country).getValue()));
+  for (auto const &[check, checkfields] : _checks) {
+    auto it = _values.find(check);
+    if (it != _values.end()) {
+      MrzValue &mrzval = it->second;
+      string val = concatCheckString(check, checkfields);
+      char checkCalculated = MrzValid::calc(val);
+      mrzval.updateCheck(checkCalculated, val);
+      char checkExpected = mrzval.getCheckExpected();
+      num++;
+      numValid += int((mrzval.isValid()) ? 1 : 0);
+    }
   }
-  return (MrzValid::calc(val) == checkstr[0]);
+  return std::make_tuple(numValid, num);
+}
+
+string Mrz::concatCheckString(Field check, vector<Field> const &fields) const {
+  string val;
+  for (Field field : fields) {
+    if (_values.find(field) == _values.end()) {
+      printf("error: field %d not found in check %d\n", field, check);
+      return string();
+    }
+    val += _values.at(field).getValue();
+  }
+  return val;
 }
 
 void Mrz::postprocessNames() {
-  auto it = _values.find(NameCombined);
-  if (it == _values.end()) {
-    return;
-  }
-  string combined = it->second;
-  size_t idx = combined.find("<<");
-  replace(combined.begin(), combined.end(), '<', ' ');
-  if (idx != string::npos) {
-    _values[Surname] = combined.substr(0, idx);
-    size_t end = combined.find_last_not_of(' ', idx + 2);
-    _values[Names] = combined.substr(idx + 2, end + 1);
+  if (_values.find(Field::NameCombined) != _values.end()) {
+    string combined = _values[Field::NameCombined].getValue();
+    size_t idx = combined.find("<<");
+    replace(combined.begin(), combined.end(), '<', ' ');
+    if (idx != string::npos) {
+      _values[Field::Surname] = combined.substr(0, idx);
+      combined = combined.substr(idx + 2);
+      size_t end = combined.find_last_not_of(' ');
+      size_t end2 = combined.find("  ");
+      _values[Field::Names] = combined.substr(0, min(end + 1, end2));
+    } else {
+      _values[Field::Surname] = combined;
+    }
   } else {
-    _values[Surname] = combined;
+    string names = _values[Field::Names].getValue();
+    replace(names.begin(), names.end(), '<', ' ');
+    size_t end = names.find_last_not_of(' ');
+    _values[Field::Names] = names.substr(0, end + 1);
+    string surname = _values[Surname].getValue();
+    replace(surname.begin(), surname.end(), '<', ' ');
+    end = surname.find_last_not_of(' ');
+    _values[Field::Surname] = surname.substr(0, end + 1);
   }
 }
 
@@ -374,11 +387,14 @@ MrzItem const &Mrz::guessType(vector<string> const &lines) {
     return vTD1;
   }
   if (lines.size() == 2) {
-    bool isV = (lines.at(0).at(0) == 'V');
-    if (lines[0].size() < 40) {
-      return isV ? vMRVB : vTD2;
-    } else {
+    bool isV = (lines[0][0] == 'V');
+    if (lines[0].size() >= 40 && lines[1].size() >= 40) {
       return isV ? vMRVA : vTD3;
+    } else if (lines[0].size() > 26 && lines[1].size() > 26) {
+      if (lines[0].substr(0, 5) == "IDFRA") {
+        return vIDFRA;
+      }
+      return isV ? vMRVB : vTD2;
     }
   }
   return vEmpty;
