@@ -1,10 +1,9 @@
 let width = 640;
 let height = 360;
+let contour_ratio = 2;
 
 // https://www.pyimagesearch.com/2015/11/30/detecting-machine-readable-zones-in-passport-images/
 // https://www.pyimagesearch.com/2014/09/01/build-kick-ass-mobile-document-scanner-just-5-minutes/
-
-let ocrRunning = false;
 
 // whether streaming video from the camera.
 let streaming = false;
@@ -13,13 +12,19 @@ let video = document.getElementById("video");
 let stream = null;
 let vc = null;
 
+
+function opencvIsReady() {
+  console.log('OpenCV.js is ready');
+  startCamera();
+}
+
+
 function startCamera() {
   if (streaming) return;
   navigator.mediaDevices.getUserMedia({
     video: {
       width: { min: 1280, ideal: 1920 },
-      height: { min: 720, ideal: 1080 },
-      frameRate: { ideal: 15, max: 30 }
+      height: { min: 720, ideal: 1080 }
     }, 
     audio: false})
     .then(function(s) {
@@ -48,14 +53,13 @@ let dstC1 = null;
 let dstC2 = null;
 let dstC3 = null;
 let dstC4 = null;
+let dstC5 = null;
 let rectKernel = null;
 let sqKernel = null;
-let gray = null;
-let blackhat = null;
 let colorRed = null;
 let colorGreen = null;
 let consecutiveRoiFound = 0;
-let time = Date.now()
+
 
 function startVideoProcessing() {
   if (!streaming) { console.warn("Please startup your webcam"); return; }
@@ -65,18 +69,17 @@ function startVideoProcessing() {
   dstC2 = new cv.Mat(height, width, cv.CV_8UC3);
   dstC3 = new cv.Mat(height, width, cv.CV_8UC3);
   dstC4 = new cv.Mat(height, width, cv.CV_8UC4);
+  dstC5 = new cv.Mat(height, width, cv.CV_8UC3);
   rectKernel = cv.getStructuringElement(cv.MORPH_RECT, {width: 13, height: 5});
   sqKernel = cv.getStructuringElement(cv.MORPH_RECT, {width: 21, height: 21});
-  gray = new cv.Mat(height, width, cv.CV_8UC1);
-  blackhat = new cv.Mat(height, width, cv.CV_8UC1);
-  colorRed = new cv.Scalar(255, 0, 0);
-  colorGreen = new cv.Scalar(0, 255, 0);
+  colorRed = new cv.Scalar(255, 0, 0, 255);
+  colorGreen = new cv.Scalar(0, 255, 0, 255);
   requestAnimationFrame(processVideo);
 }
 
 function processVideo() {
   vc.read(src);
-  cv.imshow("canvasOutput", myfilter(src));
+  cv.imshow("canvasOutput", detection(src));
   requestAnimationFrame(processVideo);
 }
 
@@ -86,6 +89,7 @@ function stopVideoProcessing() {
   if (dstC2 != null && !dstC2.isDeleted()) dstC2.delete();
   if (dstC3 != null && !dstC3.isDeleted()) dstC3.delete();
   if (dstC4 != null && !dstC4.isDeleted()) dstC4.delete();
+  if (dstC5 != null && !dstC5.isDeleted()) dstC5.delete();
 }
 
 function stopCamera() {
@@ -97,6 +101,23 @@ function stopCamera() {
   video.srcObject=null;
   stream.getVideoTracks()[0].stop();
   streaming = false;
+}
+
+
+function detection(orig) {
+  let dsize = new cv.Size(width, height);
+  cv.resize(orig, dstC1, dsize, 0, 0, cv.INTER_LINEAR); // cv.INTER_AREA
+  //cv.cvtColor(dstC1, dstC1, cv.COLOR_RGBA2RGB);
+  //cv.cvtColor(dstC1, dstC3, cv.COLOR_RGB2GRAY);
+  cv.cvtColor(dstC1, dstC3, cv.COLOR_RGBA2GRAY);
+  
+  cv.equalizeHist(dstC3, dstC3);
+
+  var found = detectcontour(dstC3);
+  if (found) {
+    detectmrz(dstC3)
+  }
+  return dstC1;
 }
 
 
@@ -114,23 +135,28 @@ function intersection(o1, p1, o2, p2) {
 
   let t1 = (x.x * d2.y - x.y * d2.x) / cross;
   let ret = new cv.Point(o1.x + d1.x * t1, o1.y + d1.y * t1);
-  //x.delete();
-  //d1.delete();
-  //d2.delete();
   return ret;
 }
 
-function hughLines(orig) {
+function detectcontour(orig) {
   let lines = new cv.Mat();
   let color = colorRed;
   let left = [];
   let right = [];
   let lower = [];
   let upper = [];
-  cv.medianBlur(orig, orig, 5);
-  cv.Canny(orig, orig, 50, 150, 3);
-  cv.HoughLinesP(orig, lines, 1, Math.PI / 180, 2, 70, 8);
+  let dsize = new cv.Size(width / contour_ratio, height / contour_ratio);
+  cv.resize(orig, dstC5, dsize, 0, 0, cv.INTER_LINEAR);
+  //cv.bilateralFilter(orig, dstC5, 9, 75, 75, cv.BORDER_DEFAULT);
+  cv.medianBlur(dstC5, dstC5, 7);
+  cv.Canny(dstC5, dstC5, 70, 200, 3);
+  //cv.imshow('canvasPass', dstC5);  
+  cv.HoughLinesP(dstC5, lines, 1, Math.PI / 180, 2, 40, 8);
   for (let i = 0; i < lines.rows; ++i) {
+    lines.data32S[i * 4] = lines.data32S[i * 4] * contour_ratio;
+    lines.data32S[i * 4 + 1] = lines.data32S[i * 4 + 1] * contour_ratio;
+    lines.data32S[i * 4 + 2] = lines.data32S[i * 4 + 2] * contour_ratio;
+    lines.data32S[i * 4 + 3] = lines.data32S[i * 4 + 3] * contour_ratio;
     let a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
     let b = new cv.Point(lines.data32S[i * 4 + 2], lines.data32S[i * 4 + 3]);
     let diffX = Math.abs(a.x - b.x);
@@ -163,8 +189,6 @@ function hughLines(orig) {
         cv.line(dstC1, a, b, colorRed, 3);          
       }
     }
-    //a.delete();
-    //b.delete();
   }
   // sort lower
   for (let i = 1; i < lower.length; i++) {
@@ -211,7 +235,7 @@ function hughLines(orig) {
     }
   }
 
-  console.log("***********************************************");
+  //console.log("***********************************************");
   for (let i_ = 0; i_ < lower.length; ++i_) {
     let i = lower[i_];
     let lower_diff_x = lines.data32S[i * 4] - lines.data32S[i * 4 + 2];
@@ -277,15 +301,9 @@ function hughLines(orig) {
           let rot = Math.abs(rot1 - rot2)
           if (rot > 0.05) {
             continue;
-          }
-          console.log("rot1:" + (rot1 / Math.PI * 180));
-          console.log("rot2:" + (rot2/ Math.PI * 180));
-          console.log("rot:" + (rot1 - rot2));
-          
+          }          
           let alpha1 = ((lower_rad - upper_rad ) % Math.PI) ;
           let alpha2 = ((left_rad - right_rad) % Math.PI) ;
-          console.log("alpha1:" + alpha1);
-          console.log("alpha2:" + alpha2);
           
           let lower_a = new cv.Point(lines.data32S[i * 4], lines.data32S[i * 4 + 1]);
           let lower_b = new cv.Point(lines.data32S[i * 4 + 2], lines.data32S[i * 4 + 3]);
@@ -333,34 +351,28 @@ function hughLines(orig) {
           let M = cv.getPerspectiveTransform(srcTri, dstTri);
           // You can try more different parameters
           let dst = new cv.Mat();
+          let lap = new cv.Mat();
           let dsize = new cv.Size(roi_width, roi_height);
           cv.warpPerspective(src, dst, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
           cv.imshow('canvasPass', dst);
 
           lines.delete();
-          return;
+          return true;
         }
       }
     }
   }
   lines.delete();
+  return false;
 }
 
-function myfilter(orig) {
-  let dsize = new cv.Size(width, height);
-  cv.resize(orig, dstC1, dsize, 0, 0, cv.INTER_AREA);
-
-  cv.cvtColor(dstC1, dstC1, cv.COLOR_RGBA2RGB);
-  cv.cvtColor(dstC1, dstC3, cv.COLOR_RGB2GRAY);
-
-  hughLines(dstC3);
-  //return dstC1;
-
-  cv.Canny(dstC3, dstC4, 200, 150);
-  //return dstC3;
+function detectmrz(dstC3) {
+  //cv.medianBlur(dstC3, dstC3, 7);
+  cv.Canny(dstC3, dstC4, 150, 200, 3, true);
   cv.morphologyEx(dstC4, dstC3, cv.MORPH_BLACKHAT, rectKernel);
   cv.morphologyEx(dstC3, dstC3, cv.MORPH_CLOSE, rectKernel);
   cv.threshold(dstC3, dstC3, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+  //cv.imshow('canvasPass', dstC3);
   
   const contoursCard = new cv.MatVector();
   const contoursRoi = new cv.MatVector();
@@ -368,8 +380,7 @@ function myfilter(orig) {
   // RETR_EXTERNAL, RETR_LIST
   cv.findContours(dstC3, contoursRoi, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     
-  let foundRoi = 0;
-  let detectedRoi = 0;
+  let foundRoi = false;
   let minX = width;
   let maxX = 0;
   let minY = height;
@@ -381,87 +392,62 @@ function myfilter(orig) {
     if (rect.width < 300 || rect.height < 8 || rect.height > 50) {
       continue;
     }
-    detectedRoi += 1;
     let area = cv.contourArea(cnt, false);
     let rectArea = rect.width * rect.height;
     let extent = area / rectArea;
     if (extent < 0.5) {
       continue;
     }
-    foundRoi += 1;
+    foundRoi = true;
     minX = Math.min(minX, rect.x - 20);
     maxX = Math.max(maxX, rect.x + rect.width + 20);
     minY = Math.min(minY, rect.y);
     maxY = Math.max(maxY, rect.y + rect.height);
   }
-  if (detectedRoi > 1) {
-    if (foundRoi > 1) {
-      consecutiveRoiFound += 1;
-    } else {
-      consecutiveRoiFound = 0;      
-    }
-    let minP = new cv.Point(minX - 10, minY - 10);
-    let maxP = new cv.Point(maxX + 20, maxY + 10);
-    console.log("******** " + minX + ", " + minY + ", " + maxX + ", " + maxY + ", ");
-    cv.rectangle(dstC1, minP, maxP, (consecutiveRoiFound > 6) ? colorGreen : colorRed, 2);
-    
-    if (consecutiveRoiFound > 6) {
-      if(!ocrRunning){
-        ocrRunning = true;
-        let x = (minX - 10) * video.videoWidth / width;
-        let w = (maxX - minX  + 30) * video.videoWidth / width;
-        let y = (minY - 10) * video.videoHeight / height;
-        let h = (maxY - minY  + 20) * video.videoHeight / height;
-        let rect = new cv.Rect(x, y, w, h);
-        let roi = new cv.Mat();
-        roi = src.roi(rect);
-        //let dsize = new cv.Size(w/2, h/2);
-        //let roi2 = new cv.Mat();
-        //cv.resize (roi, roi2, dsize)
-        cv.imshow("canvasRoi", roi);
-        let canvasRoi = document.getElementById("canvasRoi");
-        let imgData = canvasRoi.toDataURL("image/jpeg", 0.8);
-        let media = imgData.substr(23); // strip data:image/jpeg;base64,
-
-        axios.post('/mrz', {
-          media: media
-        })
-        .then(function (response) {
-          console.log("###################################");
-          console.log(response.data);
-          console.log("###################################");
-          var pretty = JSON.stringify(response.data, undefined, 4);
-          document.getElementById('mrztext').value = pretty;
-          ocrRunning = false;
-        })
-        .catch(function (error) {
-          ocrRunning = false;
-          console.log("###################################");
-          console.log(error);
-          console.log("###################################");
-          //document.getElementById('mrztext').value = '';
-          //const context = canvasRoi.getContext('2d');
-          //context.clearRect(0, 0, canvasRoi.width, canvasRoi.height);
-        });
-
-        roi.delete();
-      }
-    }
-  } else {
-    if(!ocrRunning){
-      consecutiveRoiFound = 0;
-      //const context = canvasRoi.getContext('2d');
-      //context.clearRect(0, 0, canvasRoi.width, canvasRoi.height);
-    }
+  if (!foundRoi) {
+    return false;
   }
-  //console.log("Time" + (Date.now() - time));
-  time = Date.now()
-  //cv.flip(dstC1, dstC1, 1)
-  return dstC1;
+  let minP = new cv.Point(minX - 10, minY - 10);
+  let maxP = new cv.Point(maxX + 20, maxY + 10);
+  console.log("******** " + minX + ", " + minY + ", " + maxX + ", " + maxY + ", ");
+  cv.rectangle(dstC1, minP, maxP, colorRed, 2);
+  
+  let x = (minX - 10) * video.videoWidth / width;
+  let w = (maxX - minX  + 20) * video.videoWidth / width;
+  let y = (minY - 5) * video.videoHeight / height;
+  let h = (maxY - minY  + 10) * video.videoHeight / height;
+  let rect = new cv.Rect(x, y, w, h);
+  if (rect == null) {
+    return false;
+  }
+  let roi = src.roi(rect);
+  let roi2 = new cv.Mat();
+  cv.cvtColor(roi, roi2, cv.COLOR_RGB2GRAY);
+  cv.imshow("canvasRoi", roi2);
+  let canvasRoi = document.getElementById("canvasRoi");
+  let imgData = canvasRoi.toDataURL("image/jpeg", 0.8);
+  let media = imgData.substr(23); // strip data:image/jpeg;base64,
+  
+  fetch('/mrz/api/v1/analyze_image', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({file_data: media}),
+  })
+  .then((response) => response.json())
+  .then((data) => {
+    console.log("###################################");
+    console.log(data);
+    console.log("###################################");
+    var pretty = JSON.stringify(data, undefined, 4);
+    document.getElementById('mrztext').value = pretty;
+    cv.rectangle(dstC1, minP, maxP, colorGreen, 2);
+  })
+  .catch((error) => {
+    console.log("###################################");
+    console.log(error);
+    console.log("###################################");
+  });
+  roi.delete();
 }
-
-function opencvIsReady() {
-  console.log('OpenCV.js is ready');
-  startCamera();
-}
-
