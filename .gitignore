@@ -4,3 +4,9 @@ __pycache__/
 **/.pytest_cache/
 src/*.o
 opencv/opencv
+.cproject
+.project
+.settings/
+.vscode/
+server
+

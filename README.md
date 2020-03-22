@@ -20,3 +20,4 @@ Run test against server
 - [Prado - Public Register of Authentic travel and identity Documents Online](https://www.consilium.europa.eu/prado)
 - tesseract dictionary [mrz_fast.traineddata](https://github.com/Exteris/tesseract-mrz)
 - tesseract dictionary [ocrb_int.traineddata](https://github.com/Shreeshrii/tessdata_ocrb)
+- [OpenCV.js](https://docs.opencv.org/4.2.0/d5/d10/tutorial_js_root.html) Tutorials
