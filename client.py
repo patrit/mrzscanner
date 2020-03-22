@@ -14,8 +14,6 @@ if __name__ == "__main__":
         data = {"file_data": raw.decode("utf-8")}
         start = time.time()
         ret = requests.post("http://localhost:8080/mrz/api/v1/analyze_image", json=data)
-        #ret = requests.post("http://localhost:5000/mrz", json=data)
-        #print(ret.text)
         print(time.time() - start)
         print(json.dumps(
                 {
