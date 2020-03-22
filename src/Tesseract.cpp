@@ -6,8 +6,12 @@
 #include <tesseract/baseapi.h>
 
 Tesseract::Tesseract() {
+  const char* lang = getenv("TESSERACT_LANG");
+  if (lang == nullptr) {
+    lang = "ocrb_int";
+  }
   api = new tesseract::TessBaseAPI();
-  if (api->Init("tesseract/lang", "ocrb_int")) {
+  if (api->Init("tesseract/lang", lang)) {
     fprintf(stderr, "Could not initialize tesseract.\n");
     exit(1);
   }
