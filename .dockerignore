@@ -1,2 +1,6 @@
+**
+!src/
 src/*.o
-opencv/
+!mrz/
+!Makefile
+!tesseract
