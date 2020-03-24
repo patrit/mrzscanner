@@ -18,6 +18,8 @@ RUN wget -q https://github.com/swagger-api/swagger-ui/archive/v3.24.3.tar.gz && 
   cp swagger-ui-3.24.3/dist/* mrz/api/v1/ui/ && \
   sed -i "s#https://petstore.swagger.io/v2/swagger.json#/mrz/api/v1/spec.json#g" mrz/api/v1/ui/index.html && \
   rm mrz/api/v1/ui/*.map
+# create offline app manifest
+RUN (echo "CACHE MANIFEST" &&  find static/ -type f | xargs md5sum | sed "s/\([a-z0-9]*\)  \(.*\)/# \1\n\2/g") > mrzscanner.appcache
 # compress static files
 RUN find static -type f -size +1k | grep -v "\.gz$$" | xargs gzip -k -f && \
   find mrz -type f -size +1k | grep -v "\.gz$$" | xargs gzip -k -f
@@ -32,6 +34,7 @@ RUN apt-get update && \
 WORKDIR /app
 COPY --from=builder /app/server server
 COPY --from=builder /app/tesseract tesseract
+COPY --from=builder /app/mrzscanner.appcache .
 COPY --from=builder /app/static static
 COPY --from=builder /app/mrz mrz
 

@@ -89,6 +89,7 @@ unordered_map<string, string> mimetypes = {
     {".css", "text/css"},
     {".html", "text/html"},
     {".js", "application/javascript"},
+    {".appcache", "text/cache-manifest"},
 };
 string octet_stream("application/octet-stream");
 } // namespace
