@@ -1,34 +1,93 @@
-<html manifest="/mrz/mrzscanner.appcache">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-<style>
-canvas {
-    border: 1px solid black;
-}
-video {
-    display: none;
-}
-.err {
-    color: red;
-}
-</style>
+    <title>Debug Input</title>
+    <meta name="Description" content="Degub interface for the MRZ scanner">
+    <meta charset="UTF-8">
+<script type="text/javascript">
+//<![CDATA[ 
+function onLoad() {
+    document.getElementById('uploadedfile').addEventListener('change', handleImage, false);
+    document.getElementById("submit").addEventListener("click", upload_file); 
+    var image = document.getElementById('image');
+    var ctx = image.getContext('2d');
+    var image_vis = document.getElementById('image_visible');
+    var ctx_vis = image_vis.getContext('2d');
+    var mrztext = document.getElementById('mrztext');
+
+    function handleImage(e){
+        var reader = new FileReader();
+        reader.onload = function(event){
+            var img = new Image();
+            img.onload = function(){
+                image.width = img.width;
+                image.height = img.height;
+                if (img.width > 1280) {
+                    image.width = 1280;
+                    image.height = img.height * 1280 / img.width;
+                } else {
+                    image.width = img.width;
+                    image.height = img.height;
+                }
+                ctx.drawImage(img, 0, 0, image.width, image.height);
+                if (img.width > 720) {
+                    image_vis.width = 720;
+                    image_vis.height = img.height * 720 / img.width;
+                } else {
+                    image_vis.width = img.width;
+                    image_vis.height = img.height;
+                }
+                ctx_vis.drawImage(img, 0, 0, image_vis.width, image_vis.height);
+            }
+            img.src = event.target.result;
+        }
+        reader.readAsDataURL(e.target.files[0]);
+    }
+
+    function upload_file(e) {
+        e.preventDefault();
+        let imgData = image.toDataURL("image/jpeg", 0.8);
+        let media = imgData.substr(23); // strip data:image/jpeg;base64,
+
+        fetch('/mrz/api/v1/analyze_image_mrz', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json',},
+            body: JSON.stringify({image_data: media}),
+        })
+        .then((response) => response.json())
+        .then((data) => {
+            if (data.type) {
+                mrztext.textContent = JSON.stringify(data, undefined, 4);
+            } else {
+                mrztext.textContent = "";
+            }
+        })
+        .catch((error) => {
+            console.log(error);
+        });
+    }
+};//]]>  
+</script>
 </head>
-<body>
   
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<body>
-<div id="container">
-    <canvas class="center-block" id="canvasOutput" width=640 height=360 style="transform: scale(-1, 1);"></canvas>
-    <br/>
-    <canvas class="center-block" id="canvasRoi" width=640 height=100></canvas>
-    <br/>
-    <textarea class="center-block" id="mrztext"></textarea>
-    <br/>
-    <canvas class="center-block" id="canvasPass" width=640 height=480></canvas>
-    <video id="video">Your browser does not support the video tag.</video>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=no">
+<body onload="onLoad()">
+    <h1>Debug Input</h1>
+    <div>
+        <h2>input</h2>
+        <form name="image_input">
+            <input type="file" id="uploadedfile" accept="image/*" capture>
+            <input type="submit" id="submit">
+        </form>
+    </div>
+    <div>
+        <h2>image</h2>
+        <canvas id="image_visible"></canvas>
+        <canvas id="image" style="display: none;"></canvas>
+    </div>
+<div>
+    <h2>mrz</h2>
+    <pre id="mrztext" style="background-color: lightgray;"></pre>
 </div>
 </body>
-
-<script src="index.js"></script>
-<script async src="opencv.js" onload="opencvIsReady()"></script>
-
 </html>

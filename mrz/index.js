@@ -11,6 +11,10 @@ let streaming = false;
 let video = document.getElementById("video");
 let stream = null;
 let vc = null;
+let contour_corners = null;
+let contour_time = 0;
+let contour_width = 0;
+let contour_height = 0;
 
 
 function opencvIsReady() {
@@ -58,7 +62,6 @@ let rectKernel = null;
 let sqKernel = null;
 let colorRed = null;
 let colorGreen = null;
-let consecutiveRoiFound = 0;
 
 
 function startVideoProcessing() {
@@ -79,7 +82,7 @@ function startVideoProcessing() {
 
 function processVideo() {
   vc.read(src);
-  cv.imshow("canvasOutput", detection(src));
+  cv.imshow("canvas_webcam", detection(src));
   requestAnimationFrame(processVideo);
 }
 
@@ -95,27 +98,37 @@ function stopVideoProcessing() {
 function stopCamera() {
   if (!streaming) return;
   stopVideoProcessing();
-  document.getElementById("canvasOutput").getContext("2d").clearRect(0, 0, width, height);
-  document.getElementById("canvasROI").getContext("2d").clearRect(0, 0, width, 100);
+  document.getElementById("canvas_webcam").getContext("2d").clearRect(0, 0, width, height);
+  document.getElementById("canvas_roi").getContext("2d").clearRect(0, 0, width, 100);
   video.pause();
   video.srcObject=null;
   stream.getVideoTracks()[0].stop();
   streaming = false;
 }
 
-
+let found = false;
 function detection(orig) {
   let dsize = new cv.Size(width, height);
   cv.resize(orig, dstC1, dsize, 0, 0, cv.INTER_LINEAR); // cv.INTER_AREA
-  //cv.cvtColor(dstC1, dstC1, cv.COLOR_RGBA2RGB);
-  //cv.cvtColor(dstC1, dstC3, cv.COLOR_RGB2GRAY);
   cv.cvtColor(dstC1, dstC3, cv.COLOR_RGBA2GRAY);
-  
   cv.equalizeHist(dstC3, dstC3);
 
-  var found = detectcontour(dstC3);
-  if (found) {
-    detectmrz(dstC3)
+  if (!found) {
+    var corners = detectcontour(dstC3);
+    if (contour_corners != null && corners == null) {
+      if (contour_time == 0) {
+        contour_time = Date.now();
+      } else if (Date.now() - contour_time > 1000) {
+        extract_contour(contour_corners)
+        //document.getElementById("canvas_contour").style.display = "inline";
+        found = true;
+      }
+    }
+    if (corners != null) {
+      contour_time = 0;
+      contour_corners = corners;
+      detectmrz(dstC3)
+    }
   }
   return dstC1;
 }
@@ -147,10 +160,8 @@ function detectcontour(orig) {
   let upper = [];
   let dsize = new cv.Size(width / contour_ratio, height / contour_ratio);
   cv.resize(orig, dstC5, dsize, 0, 0, cv.INTER_LINEAR);
-  //cv.bilateralFilter(orig, dstC5, 9, 75, 75, cv.BORDER_DEFAULT);
   cv.medianBlur(dstC5, dstC5, 7);
   cv.Canny(dstC5, dstC5, 70, 200, 3);
-  //cv.imshow('canvasPass', dstC5);  
   cv.HoughLinesP(dstC5, lines, 1, Math.PI / 180, 2, 40, 8);
   for (let i = 0; i < lines.rows; ++i) {
     lines.data32S[i * 4] = lines.data32S[i * 4] * contour_ratio;
@@ -294,7 +305,7 @@ function detectcontour(orig) {
               continue;
           }
 
-          console.log("___" + lower_rad + "_" + upper_rad + "_" + left_rad + "_" + right_rad);
+          //console.log("___" + lower_rad + "_" + upper_rad + "_" + left_rad + "_" + right_rad);
           
           let rot1 = ((lower_rad + upper_rad ) % Math.PI) / 2;
           let rot2 = ((left_rad + right_rad - Math.PI) % Math.PI) / 2;
@@ -319,12 +330,14 @@ function detectcontour(orig) {
           let upper_right = intersection(upper_a, upper_b, right_a, right_b);
 
           // check 2/3 ration
+          let width_lower = lower_right.x - lower_left.x
+          let height_left = upper_left.y - lower_left.y;
           let len_x = Math.max(lower_right.x - lower_left.x, upper_right.x - upper_left.x) / Math.cos(alpha1);
           let len_y = Math.max(upper_left.y - lower_left.y, upper_right.y - lower_right.y) / Math.cos(alpha2);
           let ratio = len_x / len_y;
-          console.log("length:" + len_x);
-          console.log("height:" + len_y);
-          console.log("ratio:" + ratio);
+          //console.log("length:" + len_x);
+          //console.log("height:" + len_y);
+          //console.log("ratio:" + ratio);
           // angle up to 30° ok
           if (ratio < 1.2 || ratio > 1.8) {
             continue;
@@ -339,40 +352,60 @@ function detectcontour(orig) {
           cv.line(dstC1, upper_right, upper_left, colorGreen, 1);
           cv.line(dstC1, upper_left, lower_left, colorGreen, 1);
 
+          if ((width_lower < contour_width - 10) && (height_left < contour_height - 10)) {
+            continue;
+          }
+          else if (width_lower > contour_width) {
+            contour_width = width_lower;
+          }
+          else if (height_left > contour_height) {
+            contour_height = height_left;
+          }
+
+          cv.imshow('canvas_contour', src);
+
           let xf = video.videoWidth / width;
           let yf = video.videoHeight / height;
           let roi_width = len_x * xf;
           let roi_height = len_y * yf;
-          let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [lower_left.x * xf, lower_left.y * yf,
-                                                           lower_right.x * xf, lower_right.y * yf,
-                                                           upper_left.x * xf, upper_left.y * yf,
-                                                           upper_right.x * xf, upper_right.y * yf]);
-          let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, roi_width, 0, 0, roi_height, roi_width, roi_height]);
-          let M = cv.getPerspectiveTransform(srcTri, dstTri);
-          // You can try more different parameters
-          let dst = new cv.Mat();
-          let lap = new cv.Mat();
-          let dsize = new cv.Size(roi_width, roi_height);
-          cv.warpPerspective(src, dst, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
-          cv.imshow('canvasPass', dst);
 
           lines.delete();
-          return true;
+
+          return [ // edges original image
+                  lower_left.x * xf, lower_left.y * yf,
+                  lower_right.x * xf, lower_right.y * yf,
+                  upper_left.x * xf, upper_left.y * yf,
+                  upper_right.x * xf, upper_right.y * yf,
+                  // roi edges
+                  0, 0, roi_width, 0, 0, roi_height, roi_width, roi_height
+                ];
         }
       }
     }
   }
   lines.delete();
-  return false;
+  return null;
+}
+
+function extract_contour(corners) {
+  let roi = corners.splice(8)
+  let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, corners);
+  let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, roi);
+  let M = cv.getPerspectiveTransform(srcTri, dstTri);
+  let src = cv.imread('canvas_contour')
+  let dst = new cv.Mat();
+  let dsize = new cv.Size(roi[2], roi[5]);
+  cv.warpPerspective(src, dst, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+  cv.imshow('canvas_contour', dst);
+
+  return true;
 }
 
 function detectmrz(dstC3) {
-  //cv.medianBlur(dstC3, dstC3, 7);
   cv.Canny(dstC3, dstC4, 150, 200, 3, true);
   cv.morphologyEx(dstC4, dstC3, cv.MORPH_BLACKHAT, rectKernel);
   cv.morphologyEx(dstC3, dstC3, cv.MORPH_CLOSE, rectKernel);
   cv.threshold(dstC3, dstC3, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
-  //cv.imshow('canvasPass', dstC3);
   
   const contoursCard = new cv.MatVector();
   const contoursRoi = new cv.MatVector();
@@ -409,7 +442,7 @@ function detectmrz(dstC3) {
   }
   let minP = new cv.Point(minX - 10, minY - 10);
   let maxP = new cv.Point(maxX + 20, maxY + 10);
-  console.log("******** " + minX + ", " + minY + ", " + maxX + ", " + maxY + ", ");
+  //console.log("******** " + minX + ", " + minY + ", " + maxX + ", " + maxY + ", ");
   cv.rectangle(dstC1, minP, maxP, colorRed, 2);
   
   let x = (minX - 10) * video.videoWidth / width;
@@ -423,8 +456,8 @@ function detectmrz(dstC3) {
   let roi = src.roi(rect);
   let roi2 = new cv.Mat();
   cv.cvtColor(roi, roi2, cv.COLOR_RGB2GRAY);
-  cv.imshow("canvasRoi", roi2);
-  let canvasRoi = document.getElementById("canvasRoi");
+  cv.imshow("canvas_roi", roi2);
+  let canvasRoi = document.getElementById("canvas_roi");
   let imgData = canvasRoi.toDataURL("image/jpeg", 0.8);
   let media = imgData.substr(23); // strip data:image/jpeg;base64,
   
@@ -441,8 +474,10 @@ function detectmrz(dstC3) {
     console.log(data);
     console.log("###################################");
     var pretty = JSON.stringify(data, undefined, 4);
-    document.getElementById('mrztext').value = pretty;
-    cv.rectangle(dstC1, minP, maxP, colorGreen, 2);
+    if (data.type) {
+      document.getElementById('mrztext').value = pretty;
+      cv.rectangle(dstC1, minP, maxP, colorGreen, 2);
+    }
   })
   .catch((error) => {
     console.log("###################################");
