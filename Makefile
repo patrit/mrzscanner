@@ -18,7 +18,7 @@ clean:
 	rm -f src/*.o server static/*.gz
 
 test:
-	pytest -v
+	pytest-3 -v
 
 format:
 	clang-format -i src/*.hpp src/*.cpp
