@@ -6,11 +6,18 @@
 
 class MrzCleaner {
 public:
-  MrzCleaner(std::unordered_map<char, char> spec);
-  std::string fix(std::string_view str, size_t len) const;
+  using CharMap = std::unordered_map<char, char>;
+
+  MrzCleaner(CharMap const &spec);
+  std::string fix(std::string_view str) const;
+  static void fixNumber(std::string &str, char checksum);
+
+  static CharMap none;
+  static CharMap alpha;
+  static CharMap numeric;
 
 private:
-  std::unordered_map<char, char> _map;
+  CharMap const &_map;
 };
 
 #endif

@@ -18,12 +18,13 @@ public:
     checkCalculated = calc;
     concatenated = concat;
   }
+  std::string &getValue() { return value; }
   std::string const &getValue() const { return value; }
   bool isCheck() const { return !concatenated.empty(); }
   char getCheckExpected() const { return value[0]; }
   char getCheckCalculated() const { return checkCalculated; }
   std::string const &getConcatenatedString() const { return concatenated; }
-  bool isValid() const { return getCheckExpected() == getCheckCalculated(); }
+  bool isValid() const { return (getCheckExpected() == '<') || (getCheckExpected() == getCheckCalculated()); }
 };
 
 #endif

@@ -4,6 +4,7 @@
 #include <Poco/JSON/JSON.h>
 #include <Poco/JSON/Parser.h>
 #include <algorithm>
+#include <string>
 #include <unordered_map>
 
 using std::string;
@@ -108,7 +109,6 @@ static std::unordered_map<std::string, std::string> countries{
     {"GUY", "Guyana"},
     {"HTI", "Haiti"},
     {"HMD", "Heard Island And Mcdonald Islands"},
-    {"VAT", "Holy See"},
     {"VAT", "Vatican City State"},
     {"HND", "Honduras"},
     {"HKG", "Hong Kong"},
@@ -129,6 +129,7 @@ static std::unordered_map<std::string, std::string> countries{
     {"KAZ", "Kazakhstan"},
     {"KEN", "Kenya"},
     {"KIR", "Kiribati"},
+    {"RKS", "Kosovo"},
     {"PRK", "North Korea"},
     {"KOR", "South Korea"},
     {"KWT", "Kuwait"},
@@ -271,6 +272,7 @@ static std::unordered_map<std::string, std::string> countries{
     {"YEM", "Yemen"},
     {"ZMB", "Zambia"},
     {"ZWE", "Zimbabwe"},
+    {"ZIM", "Republic of Zimbabwe"},
     {"EUE", "European Union"},
     {"UNO", "United Nations Organization"},
     {"UNA", "United Nations Agency"},

@@ -6,7 +6,7 @@
 #include <tesseract/baseapi.h>
 
 Tesseract::Tesseract() {
-  const char* lang = getenv("TESSERACT_LANG");
+  const char *lang = getenv("TESSERACT_LANG");
   if (lang == nullptr) {
     lang = "ocrb_int";
   }
@@ -16,6 +16,8 @@ Tesseract::Tesseract() {
     exit(1);
   }
   api->SetPageSegMode(tesseract::PSM_AUTO);
+  // api->SetVariable("tessedit_char_whitelist",
+  //                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<");
 }
 
 Tesseract::~Tesseract() {
@@ -28,7 +30,7 @@ std::string Tesseract::analyze(std::string const &data) {
   std::lock_guard<std::mutex> guard(mtx);
   api->SetImage(image);
   if (api->GetSourceYResolution() == 0) {
-    api->SetSourceResolution(92);
+    api->SetSourceResolution(300);
   }
   const char *outText = api->GetUTF8Text();
   std::string ret(outText);

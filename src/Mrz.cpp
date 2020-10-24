@@ -18,23 +18,9 @@ namespace {
 
 enum Split { KeepSpace, DropSpace, FillSpace };
 
-MrzCleaner fixNone({});
-MrzCleaner fixAlpha({{'0', 'O'},
-                     {'1', 'I'},
-                     {'2', 'Z'},
-                     {'4', 'A'},
-                     {'5', 'S'},
-                     {'6', 'G'},
-                     {'8', 'B'}});
-MrzCleaner fixNumeric({{'B', '8'},
-                       {'C', '0'},
-                       {'D', '0'},
-                       {'G', '6'},
-                       {'I', '1'},
-                       {'O', '0'},
-                       {'Q', '0'},
-                       {'S', '5'},
-                       {'Z', '2'}});
+MrzCleaner fixNone(MrzCleaner::none);
+MrzCleaner fixAlpha(MrzCleaner::alpha);
+MrzCleaner fixNumeric(MrzCleaner::numeric);
 
 // c.f. https://en.wikipedia.org/wiki/Machine-readable_passport
 // Passport booklets
@@ -146,13 +132,14 @@ static MrzItem vEmpty{"empty", {}};
 
 unordered_map<Field, vector<Field>> _checks = {
     {Field::CheckNumber, {Field::Number}},
+    {Field::CheckPersonalNumber, {Field::PersonalNumber}},
     {Field::CheckDateOfBirth, {Field::DateOfBirth}},
     {Field::CheckExpirationDate, {Field::ExpirationDate}},
-    {CheckCompLine2_td2,
+    {Field::CheckCompLine2_td2,
      {Field::Number, Field::CheckNumber, Field::DateOfBirth,
       Field::CheckDateOfBirth, Field::ExpirationDate,
       Field::CheckExpirationDate, Field::Optional1}},
-    {CheckCompLine2_td3,
+    {Field::CheckCompLine2_td3,
      {Field::Number, Field::CheckNumber, Field::DateOfBirth,
       Field::CheckDateOfBirth, Field::ExpirationDate,
       Field::CheckExpirationDate, Field::PersonalNumber,
@@ -174,7 +161,8 @@ vector<string> split(string const &datastr, Split splittype) {
   vector<string> tmplines;
   while (data.size() > 0) {
     size_t idx = data.find('\n');
-    if (idx > 28 && idx < 50) {
+    if ((idx > 28 && idx < 50) ||
+        ((idx == string_view::npos) && data.size() > 28 && data.size() < 50)) {
       string_view sv = data.substr(0, idx);
       string line(sv.data(), sv.size());
       // guarantee consistent format
@@ -191,9 +179,10 @@ vector<string> split(string const &datastr, Split splittype) {
       tmplines.push_back(line);
       // printf("%s\n", string(data.substr(0, idx)).c_str());
     }
-    if (idx != string_view::npos) {
-      data.remove_prefix(idx + 1);
+    if (idx == string_view::npos) {
+      break;
     }
+    data.remove_prefix(idx + 1);
   }
   return tmplines;
 }
@@ -249,7 +238,8 @@ Mrz::Mrz(string const &datastr, bool debug)
           for (MrzField const &item : mrzitem.fields) {
             string_view line = lines[item.line];
             line = line.substr(item.start, item.length);
-            _values[item.field] = item.cleaner.fix(line, item.length);
+            // generic fixup
+            _values[item.field] = item.cleaner.fix(line);
           }
           auto [valid, num] = validate();
           if (_debug) {
@@ -307,7 +297,6 @@ void Mrz::toJSON(ostream &os) const {
           check.set("is_valid", val.isValid());
           ret.set(fieldname, check);
         } else {
-
           ret.set(fieldname, val.getValue());
         }
       }
@@ -388,9 +377,9 @@ MrzItem const &Mrz::guessType(vector<string> const &lines) {
   }
   if (lines.size() == 2) {
     bool isV = (lines[0][0] == 'V');
-    if (lines[0].size() >= 40 && lines[1].size() >= 40) {
+    if (lines[0].size() >= 40 || lines[1].size() >= 40) {
       return isV ? vMRVA : vTD3;
-    } else if (lines[0].size() > 26 && lines[1].size() > 26) {
+    } else if (lines[0].size() > 26 || lines[1].size() > 26) {
       if (lines[0].substr(0, 5) == "IDFRA") {
         return vIDFRA;
       }

@@ -18,12 +18,6 @@ RUN wget -q https://github.com/swagger-api/swagger-ui/archive/v3.24.3.tar.gz && 
   cp swagger-ui-3.24.3/dist/* mrz/ui/ && \
   sed -i "s#https://petstore.swagger.io/v2/swagger.json#/mrz/api/v1/spec.json#g" mrz/ui/index.html && \
   rm mrz/ui/*.map
-# create offline app manifest
-RUN (echo "CACHE MANIFEST" &&  \
-     find mrz/ -type f | \
-     xargs md5sum | \
-     sed "s/\([a-z0-9]*\)  \(.*\)/# \1\n\/\2/g") > mrzscanner.appcache && \
-     mv mrzscanner.appcache mrz/mrzscanner.appcache
 # compress static files
 RUN find mrz -type f -size +1k | grep -v "\.gz$$" | xargs gzip -k -f
 

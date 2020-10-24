@@ -36,6 +36,56 @@ class MrzRequestHandler : public HTTPRequestHandler {
 public:
   MrzRequestHandler(Tesseract &tess) : _tess(tess){};
   virtual void handleRequest(HTTPServerRequest &req, HTTPServerResponse &resp) {
+    // parse JSON
+    Var result = parser.parse(req.stream());
+    auto object = result.extract<Object::Ptr>();
+    string text_data = object->getValue<string>("text_data");
+
+    // MRZ
+    Mrz mrz(text_data, false);
+
+    resp.setStatus(mrz.detected() ? HTTPResponse::HTTP_OK
+                                  : HTTPResponse::HTTP_BAD_REQUEST);
+    resp.setContentType("application/json");
+    mrz.toJSON(resp.send());
+  }
+};
+
+namespace {
+string extract_image_data(HTTPServerRequest &req) {
+  Parser parser;
+  // parse JSON
+  Var result = parser.parse(req.stream());
+  auto object = result.extract<Object::Ptr>();
+  string image_data = object->getValue<string>("image_data");
+  istringstream instream(image_data);
+  Poco::Base64Decoder decoder(instream);
+  string decoded;
+  Poco::StreamCopier::copyToString(decoder, decoded);
+  return decoded;
+}
+
+string optimize_image(string const &data) { return 0; }
+}; // namespace
+
+class OcrRequestHandler : public HTTPRequestHandler {
+  Tesseract &_tess;
+
+public:
+  OcrRequestHandler(Tesseract &tess) : _tess(tess){};
+  virtual void handleRequest(HTTPServerRequest &req, HTTPServerResponse &resp) {
+    resp.setContentType("text/plain");
+    resp.send() << _tess.analyze(extract_image_data(req));
+  }
+};
+
+
+class OcrMrzRequestHandler : public HTTPRequestHandler {
+  Tesseract &_tess;
+
+public:
+  OcrMrzRequestHandler(Tesseract &tess) : _tess(tess){};
+  virtual void handleRequest(HTTPServerRequest &req, HTTPServerResponse &resp) {
     Poco::URI uri(req.getURI());
     auto query = uri.getQueryParameters();
     bool debug = false;
@@ -44,32 +94,22 @@ public:
         debug = true;
       }
     }
-    string data;
-    Poco::StreamCopier::copyToString(req.stream(), data);
     // parse JSON
-    Var result = parser.parse(data);
-    auto object = result.extract<Object::Ptr>();
-    string file_data = object->getValue<string>("file_data");
-    istringstream instream(file_data);
-    Poco::Base64Decoder decoder(instream);
-    string decoded;
-    Poco::StreamCopier::copyToString(decoder, decoded);
+    string decoded = extract_image_data(req);
     // OCR
-    string ret = _tess.analyze(decoded);
+    string text_data = _tess.analyze(decoded);
     // MRZ
-    Mrz mrz(ret, debug);
+    Mrz mrz(text_data, debug);
 
     resp.setStatus(mrz.detected() ? HTTPResponse::HTTP_OK
                                   : HTTPResponse::HTTP_BAD_REQUEST);
-    ostream &out = resp.send();
     if (debug) {
       resp.setContentType("text/plain");
-      out << mrz.getDebugString();
+      resp.send() << mrz.getDebugString();
     } else {
       resp.setContentType("application/json");
-      mrz.toJSON(out);
+      mrz.toJSON(resp.send());
     }
-    out.flush();
   }
 };
 
@@ -79,7 +119,6 @@ public:
     resp.setStatus(HTTPResponse::HTTP_OK);
     resp.setContentType("application/json");
     Countries::toJson(resp.send());
-    resp.send().flush();
   }
 };
 
@@ -130,9 +169,7 @@ public:
     }
     resp.setStatus(HTTPResponse::HTTP_OK);
     Poco::FileInputStream fis(fname);
-    ostream &out = resp.send();
-    out << fis.rdbuf();
-    out.flush();
+    resp.send() << fis.rdbuf();
   }
 };
 
@@ -143,13 +180,23 @@ public:
   virtual HTTPRequestHandler *
   createRequestHandler(const HTTPServerRequest &req) {
     Poco::URI uri(req.getURI());
-    if (uri.getPath() == "/mrz/api/v1/analyze_image" &&
+    if (uri.getPath() == "/mrz/api/v1/analyze_mrz" &&
         (req.getMethod() == HTTPRequest::HTTP_POST)) {
       return new MrzRequestHandler(_tess);
-    } else if (uri.getPath() == "/mrz/api/v1/countries" &&
-               (req.getMethod() == HTTPRequest::HTTP_GET)) {
+    }
+    if (uri.getPath() == "/mrz/api/v1/analyze_image" &&
+        (req.getMethod() == HTTPRequest::HTTP_POST)) {
+      return new OcrRequestHandler(_tess);
+    }
+    if (uri.getPath() == "/mrz/api/v1/analyze_image_mrz" &&
+        (req.getMethod() == HTTPRequest::HTTP_POST)) {
+      return new OcrMrzRequestHandler(_tess);
+    }
+    if (uri.getPath() == "/mrz/api/v1/countries" &&
+        (req.getMethod() == HTTPRequest::HTTP_GET)) {
       return new CountryRequestHandler();
-    } else if (req.getMethod() == HTTPRequest::HTTP_GET) {
+    }
+    if (req.getMethod() == HTTPRequest::HTTP_GET) {
       return new FileRequestHandler(uri.getPath());
     }
     return nullptr;
