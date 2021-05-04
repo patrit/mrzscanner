@@ -18,7 +18,7 @@ if __name__ == "__main__":
         if ret.status_code != 200:
             ret2 = requests.post("http://localhost:8080/mrz/api/v1/analyze_image_mrz?debugonly=true", json=data)
             print(ret2.text)
-        print(json.dumps(
+            print(json.dumps(
                 {
                     "status_code": ret.status_code,
                     "json": ret.json()

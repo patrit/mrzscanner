@@ -5,9 +5,10 @@ RUN apt-get update && \
       libtesseract-dev wget \
       make g++ libpoco-dev python3 python3-pip python3-setuptools
 WORKDIR /app
-RUN pip3 install pytest requests openapi_spec_validator jsonschema
 COPY . /app
+RUN python3 -m pip install -r test/requirements.txt
 RUN make clean && make -j4 && strip server
+RUN ./server & pytest -v -x
 
 # grab swagger ui
 RUN wget -q https://github.com/swagger-api/swagger-ui/archive/v3.24.3.tar.gz && \
