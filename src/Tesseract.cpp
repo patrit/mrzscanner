@@ -23,6 +23,7 @@ Tesseract::Tesseract() {
 Tesseract::~Tesseract() {
   // Destroy used object and release memory
   api->End();
+  delete api;
 }
 
 std::string Tesseract::analyze(std::string const &data) {
