@@ -251,10 +251,7 @@ YkoNn+i1KuNDswN5Eufsoj+SBgbyLKK18CcMNRwWCOYEHwLBj2RmrhO5FpNjU0YKmYyOc5aCjniCLRMJ
             "type": "string"
           },
           "check_personal_number": {
-            "type": "string",
-            "example": "1",
-            "minLength": 1,
-            "maxLength": 1
+            "$ref": "#/components/schemas/MrzCheck"
           },
           "raw": {
             "type": "array",
