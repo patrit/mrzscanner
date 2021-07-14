@@ -7,12 +7,12 @@ Build the docker image
 
 ## Usage
 Run the docker container
-
 ```docker run --rm  -p 8080:8080 mrzscanner```
 
 Run test against server
-
 ```./client.py path/to/image.jpg```
+
+Swagger UI: http://localhost:8080/mrz/ui/
 
 ## External resources
 - MRZ Info on [Wikimedia](https://en.wikipedia.org/wiki/Machine-readable_passport)
