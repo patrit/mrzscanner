@@ -284,7 +284,6 @@ static std::unordered_map<std::string, std::string> countries{
     {"XEC", "Ecowas"},
     {"INP", "Interpol"},
     {"XOM", "Military Order Of Malta"},
-    {"XXA", "Stateless"},
     {"XXA", "Refugee"},
     {"XXB", "Refugee B"},
     {"XXX", "Unknown"},
