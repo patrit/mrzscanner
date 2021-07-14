@@ -40,6 +40,7 @@ public:
 
   static std::unordered_map<Field, std::string> const &getMap();
   static std::string const &toName(Field field);
+  static std::string removeTrailingChar(std::string const& val);
 };
 
 #endif

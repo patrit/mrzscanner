@@ -2,6 +2,8 @@
 
 #include <unordered_map>
 
+using namespace std;
+
 namespace {
 std::unordered_map<Field, std::string> _map = {
     {MrzType, "mrz_type"},
@@ -34,15 +36,23 @@ std::unordered_map<Field, std::string> _map = {
 };
 };
 
-std::unordered_map<Field, std::string> const &MrzFields::getMap() {
+unordered_map<Field, string> const &MrzFields::getMap() {
   return _map;
 }
 
-std::string const &MrzFields::toName(Field field) {
+string const &MrzFields::toName(Field field) {
   static std::string _empty;
   auto it = _map.find(field);
   if (it == _map.end()) {
     return _empty;
   }
   return it->second;
+}
+
+string MrzFields::removeTrailingChar(string const& val) {
+  size_t idx = val.find_last_not_of('<');
+  if (idx != string::npos) {
+    return val.substr(0, idx + 1);
+  }
+  return string();
 }

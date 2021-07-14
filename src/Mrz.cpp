@@ -297,7 +297,7 @@ void Mrz::toJSON(ostream &os) const {
           check.set("is_valid", val.isValid());
           ret.set(fieldname, check);
         } else {
-          ret.set(fieldname, val.getValue());
+          ret.set(fieldname, MrzFields::removeTrailingChar(val.getValue()));
         }
       }
     }

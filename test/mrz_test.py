@@ -14,12 +14,12 @@ class Test_MRZ():
         ret = resp.json()
         assert "TD1" == ret["mrz_type"]
         assert "ID" == ret["type"]
-        assert "<" == ret["sex"]
+        assert "" == ret["sex"]
         assert "ERIKA PAULA ANNA" == ret["names"]
         assert "MUSTERMANN" == ret["surname"]
         assert "T22000129" == ret["number"]
-        assert "D<<" == ret["country"]
-        assert "D<<" == ret["nationality"]
+        assert "D" == ret["country"]
+        assert "D" == ret["nationality"]
         assert "640812" == ret["date_of_birth"]
         assert "201031" == ret["expiration_date"]
 
